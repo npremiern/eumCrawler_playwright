@@ -1,0 +1,144 @@
+name: Build Executables
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright browsers
+      run: |
+        python -m playwright install chromium
+
+    - name: Build Windows executable
+      run: |
+        python -m PyInstaller crawler.spec
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: crawler-windows
+        path: dist/crawler.exe
+        retention-days: 30
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright browsers
+      run: |
+        python -m playwright install chromium
+
+    - name: Build macOS executable
+      run: |
+        python -m PyInstaller crawler.spec
+
+    - name: Upload macOS artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: crawler-macos
+        path: dist/crawler
+        retention-days: 30
+
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright dependencies
+      run: |
+        python -m playwright install-deps
+        python -m playwright install chromium
+
+    - name: Build Linux executable
+      run: |
+        python -m PyInstaller crawler.spec
+
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: crawler-linux
+        path: dist/crawler
+        retention-days: 30
+
+  create-release:
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+
+    - name: Create release package
+      run: |
+        mkdir -p release/windows release/macos release/linux
+
+        # Copy executables
+        cp crawler-windows/crawler.exe release/windows/ || true
+        cp crawler-macos/crawler release/macos/ || true
+        cp crawler-linux/crawler release/linux/ || true
+
+        # Copy documentation
+        cp README.md release/ || true
+        cp README.txt release/ || true
+        cp example_data.xlsx release/ || true
+
+        # Create archives
+        cd release
+        zip -r ../crawler-windows.zip windows/ README.md README.txt example_data.xlsx || true
+        tar -czf ../crawler-macos.tar.gz macos/ README.md README.txt example_data.xlsx || true
+        tar -czf ../crawler-linux.tar.gz linux/ README.md README.txt example_data.xlsx || true
+
+    - name: Upload release packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: release-packages
+        path: |
+          crawler-windows.zip
+          crawler-macos.tar.gz
+          crawler-linux.tar.gz
+        retention-days: 90

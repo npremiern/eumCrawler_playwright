@@ -41,7 +41,7 @@ images/
 *.log
 test_download.bin
 debug_page.html
-
+pdfs/
 # Browser files (too large for git)
 chromium-win64.zip
 browsers/

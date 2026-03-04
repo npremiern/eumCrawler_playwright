@@ -1,0 +1,216 @@
+# Changelog
+
+## [1.4.0] - 2026-01-29
+
+### Fixed
+- **File Naming System**: Completely overhauled file naming to use sequential IDs
+  - All output files (PDF, images, Excel ID column) now use a consistent 1-based sequential ID
+  - Sequential ID starts from 1 regardless of the Excel start row setting
+  - Duplicate file handling: Uses numeric suffixes (e.g., `1_address.pdf`, `1_address_1.pdf`)
+  - Image files: Format changed to `{ID}_{address}_{scale}.png` (e.g., `1_서울특별시_1200.png`)
+  - PDF files: Format changed to `{ID}_{address}.pdf` (e.g., `1_서울특별시.pdf`)
+
+- **Data Duplication Issue**: Fixed duplicate data appearing for different addresses
+  - Added forced page refresh before each search to prevent stale data
+  - Ensures each search starts from a clean state
+
+- **Multiple Search Results**: Fixed timeout errors when multiple addresses appear
+  - Implemented automatic selection of the first dropdown result
+  - Updated selector to `#recent > div.recent_list.addrDiv > div > ul > li:nth-child(1) > a`
+
+- **Excel File Corruption**: Resolved file corruption issues after crawling completion
+  - Changed from per-row saving to batch saving (every 5 rows)
+  - Added filesystem delay before final save
+  - Significantly improved file stability and reduced I/O operations
+
+### Changed
+- **Progress Display**: Updated progress text to show sequential ID instead of Excel row number
+  - Format: "1번 처리 중", "2번 완료" instead of row numbers
+
+- **Excel Error Handling**: Enhanced error feedback when Excel file fails to load
+  - Displays specific error message with instructions to download new template
+  - Automatically clears the selected file path on error
+
+### Added
+- **UI Reset on File Selection**: Implemented comprehensive state reset when new file is selected
+  - Clears work list table, statistics, progress bar, logs
+  - Resets all internal events and button states
+  - Settings (start row, headless mode, etc.) are preserved
+
+- **Window Size Persistence**: Added window geometry saving
+  - Window size and position are saved to `gui_config.json` on exit
+  - Automatically restored on next application launch
+  - Falls back to default 800x900 if no saved settings exist
+
+### Technical Details
+- Modified `scraper.py` to handle dropdown selection with proper selector
+- Updated `crawler.py` batch save logic with `rows_since_save` counter
+- Enhanced `crawler_gui.py` with `reset_ui()` method and geometry persistence
+- Added `load_window_geometry()` and `save_window_geometry()` methods
+
+## [1.3.0] - 2026-01-28
+
+## [1.2.0] - 2025-12-18
+### Added
+- **PDF Saving**:
+  - Automatically saves the print view of the search result as a PDF file.
+  - PDF files are stored in the new `pdfs/` directory.
+- **Robust Image Downloading**:
+  - Improved image downloading logic to handle relative URLs and session-based authentication.
+  - Added strong error handling and logging for download failures (e.g., fetch errors).
+- **Absolute Path Management**:
+  - Configured `images`, `pdfs`, `temp_images` directories to be created using absolute paths based on the execution environment.
+  - Ensures correct folder creation whether running as a Python script or a PyInstaller EXE.
+- **Search Error Details**:
+  - Detailed error reasons (timeout, network error, etc.) are now logged and saved to Excel when address search fails.
+
+### Changed
+- **Image Filenames**: 
+  - Image filenames now include the scale information (e.g., `Address_1200.png` or `Address_3000.png`).
+- **Data Saving**:
+  - Re-enabled automatic Excel saving after every row to prevent data loss in case of interruption.
+  - Added visual error logs if saving fails (e.g., if the file is open).
+- **Data Extraction**:
+  - Improved data extraction efficiency by excluding button elements (`PRINT_BTN`) from the text extraction loop.
+- **Version**: Updated application version to **v1.2**.
+
+## [1.1.0] - 2025-12-08 (Evening Session)
+
+### Fixed
+- **GUI Data Display Issue**:
+  - Fixed critical bug where scraped data was not appearing in the GUI "Work List".
+  - Implemented thread-safe GUI updates using `root.after()` for all callbacks (`log`, `update_progress`, `update_data`).
+  - Added `data_callback` and `save_request_event` parameters to `run_crawler` function.
+- **Robust Web Selectors**:
+  - Changed all data field selectors from ID-based to XPath-based for better reliability.
+  - Updated selectors: `PRESENT_ADDR`, `PRESENT_CLASS`, `PRESENT_AREA`, `JIGA` now use `xpath=//th[contains(text(), '...')]/following-sibling::td`.
+  - Changed zone selectors back to ID-based (`#present_mark1`, `#present_mark2`, `#present_mark3`) for stability.
+- **Browser Context Error**:
+  - Fixed "Please use browser.new_context()" error in image download.
+  - Added explicit browser context creation in `scraper.py`.
+  - Updated popup page creation to use `self.context.new_page()`.
+
+### Changed
+- **Column Names**:
+  - Renamed "ë¶„ë¥˜" to "ì§€ëª©" in GUI and Excel output.
+  - Added "ì§€ê°€ì—°ë�„" column to separate year from price data.
+- **Data Processing**:
+  - **ì§€ëª© (Land Category)**: Automatically removes "?" characters and trims whitespace.
+  - **ì§€ê°€ (Land Price)**: Now parsed to extract year separately.
+    - Example: `67,300,000ì›� (2025/01)` â†’ `ì§€ê°€: 67,300,000ì›�`, `ì§€ê°€ì—°ë�„: 2025/01`
+  - **ì�´ë¯¸ì§€ì—¬ë¶€ (Image Status)**: Changed from "O/X" to "Y/N" format.
+- **Image Handling**:
+  - Removed image resizing logic - now saves **original size images**.
+  - Images are saved without any resize/compression in both temp and permanent folders.
+  - Excel row height automatically adjusts to image height.
+- **GUI Layout Optimization**:
+  - Reduced window width from 1200px to 800px (2/3 size).
+  - Merged "ì§„í–‰ ìƒ�í™©" and "í†µê³„" into a single compact horizontal line.
+  - Shortened statistics format: "ê²½ê³¼ ì‹œê°„: 0ì´ˆ" â†’ "ì‹œê°„: 0s".
+  - Progress bar reduced from 400px to 150px width.
+  - Font size reduced from 10 to 9 for statistics.
+
+### Added
+- **Horizontal Scrollbar**: Added to Treeview for better handling of wide data.
+- **ì§€ê°€ì—°ë�„ Column**: New column in both GUI and Excel to store land price year.
+- **Debug Logging**: Extensive debug logs added to track data extraction and GUI updates.
+- **Auto Save on Completion**: Excel file automatically saves when crawling completes or stops.
+
+### Technical Details
+- Updated `EXCEL_COLUMNS` mapping: shifted all columns after JIGA by one position to accommodate JIGA_YEAR.
+- Added regex parsing in `extract_data` to split JIGA into price and year.
+- Enhanced `_update_data_impl` with detailed logging for troubleshooting.
+- GUI "ì €ìž¥" (Save) button now enables during crawling and disables after completion.
+
+## [1.0.0] - 2025-12-08 (Initial Session)
+
+### Added
+- **Download Template Feature**:
+  - Added "ì–‘ì‹� ë‹¤ìš´ë°›ê¸°" button to GUI.
+  - Implemented `create_template` in `ExcelHandler` to generate a standard Excel template.
+  - Defined `TEMPLATE_HEADERS` in `config.py` with columns: ID, Address, Result, Details, PNU, Class, Area, Jiga, Zone1, Zone2, Regulation, ImageStatus.
+- **Manual Save Feature**:
+  - Added "ì €ìž¥" (Save) button to GUI.
+  - Implemented manual save logic: GUI sets a flag, and the crawler thread saves the file at the next convenient point.
+- **In-Memory Data Handling**:
+  - Modified `run_crawler` to stop saving to Excel automatically after every row.
+  - Implemented `data_callback` to update the GUI "Work List" in real-time without disk I/O.
+  - The Excel file is now only saved when the "Save" button is clicked or when the crawling process finishes.
+- **Debug Mode (Step-by-step Execution)**:
+  - Added a "Debug Mode" checkbox in the GUI settings.
+  - Implemented step-by-step execution control using a "Next" button.
+  - Added breakpoints: after browser start, after validation phase, before each scraping row, and before popup image download.
+- **PNU Code Extraction & Output**:
+  - Extracted PNU code from `mpSearchAddrAjaxXml.jsp` response during validation.
+  - Added "PNU" column to the GUI results table.
+  - Added "PNU" column to the Excel output file.
+- **Conditional Image Downloading**:
+  - Implemented logic to download images from a popup URL (`luLandPop.jsp`) if the selected map scale is not "1/1200".
+  - Added `download_image_from_popup` method to `RealEstateScraper`.
+- **Map Scale Selection**:
+  - Added a dropdown in GUI to select "Cadastral Map Scale" (e.g., 1/1200, 1/3000).
+
+### Changed
+- **GUI Work List**:
+  - Updated Treeview columns to display all scraped fields: ID, Address, Result, Details, PNU, Class, Area, Jiga, Zone1, Zone2, Regulation, ImageStatus.
+  - Updated `update_progress` and added `update_data` to populate these columns.
+- **Crawler Logic**:
+  - `run_crawler` now accepts `data_callback` and `save_request_event` for better GUI integration and control.
+  - Removed periodic saving in validation phase and per-row saving in scraping phase to improve performance and reduce file corruption risks.
+- **Crawling Process**:
+  - Refactored into a **Two-Phase Process**:
+    1.  **Validation Phase**: Batch validates all addresses using Ajax, extracts PNU, and filters invalid rows.
+    2.  **Scraping Phase**: Scrapes detailed data and images only for validated addresses.
+- **Image Download Mechanism**:
+  - Refactored `download_image_from_popup` to **reuse a single separate browser tab** for downloading images. This avoids navigating away from the main search page and improves performance compared to opening/closing tabs for every request.
+- **Logging**:
+  - Centralized logging: Internal scraper logs (including Ajax errors) are now routed to the GUI log window.
+  - Enhanced Ajax response logging: Logs raw XML/JSON responses in verbose mode for debugging.
+- **Excel Handling**:
+  - Optimized save frequency: During validation, data is saved every 50 rows instead of every row to prevent file corruption and improve speed.
+  - Added explicit error logging for file open failures (e.g., file locked).
+
+### Fixed
+- **Excel Column Mapping**:
+  - Updated `EXCEL_COLUMNS` in `config.py` to match the new requested layout.
+- **Ajax Response Parsing**:
+  - Fixed XML parsing errors caused by JSON-wrapped XML responses from the server.
+  - Implemented automatic encoding detection (EUC-KR/UTF-8) for Korean characters in server responses.
+- **Excel File Corruption**:
+  - Resolved issues where the Excel file became corrupted due to frequent saving or improper closure.
+- **Code Errors**:
+  - Fixed `IndentationError` and `SyntaxError` in `scraper.py` and `excel_handler.py`.
+  - Fixed `NameError` for `IMAGE_WIDTH` by importing it correctly.
+
+ 
+ # #   [ 1 . 3 . 0 ]   -   2 0 2 6 - 0 1 - 2 9 
+ 
+ # # #   C h a n g e d 
+ 
+ -   * * G U I   L a y o u t   O v e r h a u l * * : 
+ 
+     -   R e d e s i g n e d   s e t t i n g   m a n a g e m e n t :   C r e a t e d   a   c l e a n e r   i n t e r f a c e   b y   h i d i n g   a d v a n c e d   s e t t i n g s   ( W a i t   T i m e ,   V e r b o s e ,   D e b u g )   i n   a   " D e t a i l e d   S e t t i n g s "   p o p u p . 
+ 
+     -   S i m p l i f i e d   M a i n   C o n t r o l   A r e a :   N o w   p r o m i n e n t l y   f e a t u r e s   ' P D F   D o w n l o a d '   a n d   ' M a p   S c a l e '   s e t t i n g s   d i r e c t l y   o n   t h e   m a i n   s c r e e n . 
+ 
+     -   O p t i m i z e d   B u t t o n   L a y o u t :   M o v e d   S t a r t / S t o p / S a v e   b u t t o n s   t o   a   s i n g l e   h o r i z o n t a l   r o w   w i t h   r e d u c e d   w i d t h   f o r   a   m o r e   c o m p a c t   a n d   b a l a n c e d   l o o k . 
+ 
+     -   E n h a n c e d   V i s u a l s :   U p d a t e d   t h e   ' D e t a i l e d   S e t t i n g s '   b u t t o n   t o   a   c l e a n   g e a r   i c o n   ( ? ÂÒ)   a n d   r e f i n e d   e l e m e n t   s p a c i n g . 
+ 
+ -   * * L o g   M a n a g e m e n t * * : 
+ 
+     -   I m p r o v e d   U I   S p a c e :   T h e   l o g   a r e a   i s   n o w   h i d d e n   b y   d e f a u l t   t o   k e e p   t h e   i n t e r f a c e   c l e a n . 
+ 
+     -   A d d e d   a   " S h o w   L o g s "   t o g g l e   b u t t o n   t o   e x p a n d / c o l l a p s e   t h e   l o g   v i e w e r   a s   n e e d e d . 
+ 
+ -   * * I D   D i s p l a y * * : 
+ 
+     -   C h a n g e d   t h e   " I D "   c o l u m n   i n   t h e   r e s u l t   t a b l e   t o   a l w a y s   d i s p l a y   a   s e q u e n t i a l   n u m b e r   s t a r t i n g   f r o m   1 ,   i n d e p e n d e n t   o f   t h e   a c t u a l   r o w   n u m b e r   i n   t h e   E x c e l   f i l e . 
+ 
+ -   * * S e a r c h   L o g i c * * : 
+ 
+     -   U p d a t e d   a d d r e s s   v a l i d a t i o n   l o g i c :   I f   m u l t i p l e   s e a r c h   r e s u l t s   a r e   f o u n d   ( e . g . ,   d u p l i c a t e d   a d d r e s s e s ) ,   t h e   p r o g r a m   n o w   a u t o m a t i c a l l y   s e l e c t s   t h e   f i r s t   r e s u l t   i n s t e a d   o f   f a i l i n g   v a l i d a t i o n . 
+ 
+ -   * * V e r s i o n * * :   U p d a t e d   a p p l i c a t i o n   v e r s i o n   t o   * * v 1 . 3 * * . 
+ 
+ 

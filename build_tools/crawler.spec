@@ -1,4 +1,4 @@
-# -*- mode: python ; coding: utf-8 -*-
+﻿# -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
 from pathlib import Path
@@ -29,8 +29,8 @@ if playwright_driver:
     playwright_binaries.extend(playwright_driver)
 
 a = Analysis(
-    ['crawler.py'],
-    pathex=[],
+    ['../src/crawler.py'],
+    pathex=['../src'],
     binaries=playwright_binaries,
     datas=[],
     hiddenimports=[

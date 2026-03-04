@@ -7,11 +7,10 @@ from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import get_column_letter
 from PIL import Image
-from rich.console import Console
+import sys
 
 from config import EXCEL_COLUMNS, IMAGE_WIDTH
-
-console = Console()
+from console_helper import console
 
 
 class ExcelHandler:
@@ -70,6 +69,27 @@ class ExcelHandler:
             console.print(f"[yellow]Warning: Error reading row {row}: {e}[/yellow]")
             return None
 
+    @staticmethod
+    def create_template(filepath: str) -> bool:
+        """Create a new Excel template file."""
+        try:
+            from openpyxl import Workbook
+            from config import TEMPLATE_HEADERS
+            
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Address List"
+            
+            # Write headers
+            for col_idx, header in enumerate(TEMPLATE_HEADERS, 1):
+                ws.cell(row=1, column=col_idx, value=header)
+                
+            wb.save(filepath)
+            return True
+        except Exception as e:
+            console.print(f"[red]Error creating template: {e}[/red]")
+            return False
+
     def write_data(self, row: int, data: Dict[str, str]) -> bool:
         """
         Write scraped data to the Excel file.
@@ -83,20 +103,32 @@ class ExcelHandler:
         """
         try:
             # Write text data
-            if "present_addr" in data:
-                self.worksheet[f"{EXCEL_COLUMNS['PRESENT_ADDR']}{row}"] = data["present_addr"]
+            if "id" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['ID']}{row}"] = data["id"]
             if "present_class" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_CLASS']}{row}"] = data["present_class"]
             if "present_area" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_AREA']}{row}"] = data["present_area"]
             if "jiga" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['JIGA']}{row}"] = data["jiga"]
+            if "jiga_year" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['JIGA_YEAR']}{row}"] = data["jiga_year"]
             if "present_mark1" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK1']}{row}"] = data["present_mark1"]
             if "present_mark2" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK2']}{row}"] = data["present_mark2"]
             if "present_mark3" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK3']}{row}"] = data["present_mark3"]
+            
+            # Write status/error info
+            if "result" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['RESULT']}{row}"] = data["result"]
+            if "details" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['DETAILS']}{row}"] = data["details"]
+            if "pnu" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['PNU']}{row}"] = data["pnu"]
+            if "image_status" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['IMAGE_STATUS']}{row}"] = data["image_status"]
 
             return True
         except Exception as e:
@@ -119,13 +151,9 @@ class ExcelHandler:
                 console.print(f"[yellow]Warning: Image not found: {image_path}[/yellow]")
                 return False
 
-            # Resize image
+            # Use original image without resizing
             img = Image.open(image_path)
-            aspect_ratio = img.height / img.width
-            new_width = IMAGE_WIDTH
-            new_height = int(new_width * aspect_ratio)
-            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
+            
             # Convert to RGB if needed (for PNG with transparency)
             if img.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', img.size, (255, 255, 255))
@@ -134,18 +162,23 @@ class ExcelHandler:
                 background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
                 img = background
 
-            # Save resized image to temporary file in temp_images directory
-            # Use row number to avoid conflicts
+            # Save to temporary file in temp_images directory (as PNG)
             from config import TEMP_IMAGE_DIR
-            temp_path = os.path.join(TEMP_IMAGE_DIR, f"excel_resized_row{row}.png")
-
+            temp_path = os.path.join(TEMP_IMAGE_DIR, f"excel_original_row{row}.png")
+            
             img.save(temp_path, format='PNG')
             self.temp_image_files.append(temp_path)
 
             # Insert into Excel from file
             xl_img = XLImage(temp_path)
-            cell = f"{EXCEL_COLUMNS['IMAGE']}{row}"
-            self.worksheet.add_image(xl_img, cell)
+            cell_ref = f"{EXCEL_COLUMNS['IMAGE']}{row}"
+            self.worksheet.add_image(xl_img, cell_ref)
+            
+            # Adjust row height to match image height
+            # Excel row height is in points. 1 pixel approx 0.75 points
+            # We add a little padding
+            row_height = (img.height * 0.75) + 10
+            self.worksheet.row_dimensions[row].height = row_height
 
             return True
         except Exception as e:

@@ -1,0 +1,142 @@
+==============================================
+설치 가이드 (Installation Guide)
+==============================================
+
+[Windows 사용자]
+
+1. EXE 파일 다운로드
+   - crawler.exe를 원하는 폴더에 저장
+
+2. 첫 실행
+   - crawler.exe를 더블클릭하거나
+   - 명령 프롬프트에서 실행:
+     crawler.exe --file example_data.xlsx
+
+3. 자동 설치 (첫 실행 시)
+   ✓ Chromium 브라우저 자동 다운로드
+   ✓ 크기: 약 200MB
+   ✓ 시간: 3-5분
+   ✓ 설치는 1회만 진행
+
+4. 완료!
+   - 이후부터는 바로 실행됩니다
+
+==============================================
+
+[문제 해결]
+
+Q: "브라우저 설치 실패" 오류가 나와요
+A: 수동 설치:
+   1. 명령 프롬프트 열기 (관리자 권한)
+   2. 다음 명령어 입력:
+      playwright install chromium
+   3. 완료 후 프로그램 재실행
+
+Q: 백신이 차단해요
+A: crawler.exe를 백신 예외 목록에 추가하세요.
+   이 프로그램은 안전합니다.
+
+Q: 인터넷이 없어요
+A: 인터넷이 연결된 PC에서:
+   1. 브라우저 설치: playwright install chromium
+   2. 설치 폴더를 USB로 복사
+   3. 오프라인 PC의 다음 위치에 붙여넣기:
+      C:\Users\사용자명\AppData\Local\ms-playwright
+
+Q: "DLL 로드 실패" 오류
+A: Visual C++ 재배포 패키지 설치
+   https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+==============================================
+
+[macOS 사용자]
+
+1. 다운로드한 파일에 실행 권한 부여:
+   chmod +x crawler
+
+2. 보안 설정:
+   xattr -cr crawler
+
+3. 실행:
+   ./crawler --file example_data.xlsx
+
+==============================================
+
+[Linux 사용자]
+
+1. 실행 권한 부여:
+   chmod +x crawler
+
+2. 시스템 의존성 설치 (Ubuntu/Debian):
+   sudo apt-get update
+   sudo apt-get install -y \
+       libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+       libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+       libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+       libasound2
+
+3. 실행:
+   ./crawler --file example_data.xlsx
+
+==============================================
+
+[설치 위치]
+
+Windows:
+- 프로그램: 원하는 위치
+- 브라우저: C:\Users\사용자명\AppData\Local\ms-playwright
+- 임시 파일: 프로그램 실행 폴더\temp_images
+- 이미지 저장: 프로그램 실행 폴더\images
+
+macOS:
+- 프로그램: 원하는 위치
+- 브라우저: ~/Library/Caches/ms-playwright
+- 임시 파일: ./temp_images
+- 이미지 저장: ./images
+
+Linux:
+- 프로그램: 원하는 위치
+- 브라우저: ~/.cache/ms-playwright
+- 임시 파일: ./temp_images
+- 이미지 저장: ./images
+
+==============================================
+
+[디스크 공간 요구사항]
+
+최소:
+- 프로그램: 50-80MB
+- Chromium 브라우저: 200MB
+- 작업 공간: 500MB (이미지 저장용)
+합계: 약 800MB
+
+권장:
+- 1GB 이상 여유 공간
+
+==============================================
+
+[업데이트]
+
+새 버전이 나오면:
+1. 기존 crawler.exe 삭제
+2. 새 버전 다운로드
+3. 실행
+
+브라우저는 재설치 불필요!
+
+==============================================
+
+[제거 방법]
+
+1. crawler.exe 삭제
+2. 브라우저 폴더 삭제 (선택사항):
+   - Windows: C:\Users\사용자명\AppData\Local\ms-playwright
+   - macOS: ~/Library/Caches/ms-playwright
+   - Linux: ~/.cache/ms-playwright
+3. temp_images, images 폴더 삭제 (선택사항)
+
+==============================================
+
+지원: GitHub Issues
+문서: README.md
+==============================================

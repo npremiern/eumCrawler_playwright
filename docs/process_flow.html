@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eumCrawler_playwright 실행 프로세스 플로우</title>
+    <!-- 폰트 및 스타일 -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 40px;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+            padding: 40px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        header {
+            margin-bottom: 30px;
+            border-bottom: 2px solid #edf2f7;
+            padding-bottom: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        p.desc {
+            color: #7f8c8d;
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            background-color: #ffffff;
+        }
+
+        /* 컨트롤 패널 */
+        .controls {
+            margin-top: 30px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <h1>eumCrawler_playwright 프로세스 플로우</h1>
+            <p class="desc">부동산 정보 자동 수집 프로그램의 구동 로직 워크플로우 (주소 검증 단계 및 데이터 크롤링 단계)</p>
+        </header>
+
+        <div class="mermaid" id="diagram">
+            %%{init: {'theme': 'base', 'themeVariables': { 'fontFamily': 'Noto Sans KR', 'lineColor': '#2c3e50',
+            'primaryColor': '#e1f5fe', 'primaryBorderColor': '#03a9f4'}}}%%
+            graph TD
+            classDef startEnd fill:#f8f9fa,stroke:#343a40,stroke-width:2px,rx:10,font-weight:bold;
+            classDef process fill:#e3f2fd,stroke:#2196f3,stroke-width:2px,rx:5;
+            classDef condition fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
+            classDef save fill:#e8f5e9,stroke:#4caf50,stroke-width:2px,rx:5;
+            classDef error fill:#ffebee,stroke:#f44336,stroke-width:2px,rx:5;
+
+            Start((GUI 크롤링 시작)):::startEnd --> Init["초기화 수행<br />- Playwright 브라우저 설정<br />- ExcelHandler 엑셀 열기<br />-
+            Scraper 시작"]:::process
+
+            Init --> Phase1{"1단계: 엑셀 전체 순회<br />Ajax 주소 유효성 검증"}:::condition
+
+            subgraph Phase1_Validation ["Phase 1: Validation (주소 사전 검증)"]
+            Phase1 --> |주소 읽기| AjaxCheck["Scraper: Ajax 기반 검색 결과 확인"]:::process
+            AjaxCheck --> CountCheck{"결과 내역 ≥ 1?"}:::condition
+            CountCheck --> |Yes| SaveValid["유효 데이터에 추가<br />→ 엑셀에 고유 PNU 번호 즉시 저장"]:::save
+            CountCheck --> |No / Error| SaveFail["엑셀에 '검증 실패' 기록"]:::error
+            SaveValid --> Phase1
+            SaveFail --> Phase1
+            end
+
+            Phase1 -->|엑셀 순회 완료| Phase2{"2단계: 유효 주소 순회<br />본격적인 데이터 크롤링"}:::condition
+
+            subgraph Phase2_Scraping ["Phase 2: Scraping (데이터 수집 및 저장)"]
+            Phase2 --> |유효 주소 추출| URLSearch["eum.go.kr 해당 주소로 이동"]:::process
+            URLSearch --> SearchSuccess{"페이지 진입 성공?"}:::condition
+            SearchSuccess --> |No| MarkScrapeFail["엑셀에 '크롤링 실패' 기록"]:::error
+            MarkScrapeFail --> Phase2
+
+            SearchSuccess --> |Yes| DataExt["토지이용계획 텍스트 데이터 추출"]:::process
+
+            DataExt --> CheckScale{"사용자가 선택한<br />축척 옵션 비교"}:::condition
+
+            CheckScale -->|"1/1200 (기본)"| DImg["현재 메인 페이지에서<br />지적도 단면 이미지 다운로드"]:::process
+            CheckScale -->|"1/3000 등 기타"| DImgPop["PNU 코드 활용해 팝업창 오픈 후<br />확대/축소 지적도 단면 이미지 다운로드"]:::process
+
+            DImg --> CheckPDF{"PDF 저장 옵션<br />사용 중?"}:::condition
+            DImgPop --> CheckPDF
+
+            CheckPDF -->|Yes| DecidePDFScale{"축척 및 대상 확인"}:::condition
+            DecidePDFScale -->|"1/1200"| SavePDF["메인 페이지 인쇄 스크립트로<br />PDF 웹 페이지 스크랩 저장"]:::save
+            DecidePDFScale -->|"기타 축척"| SavePDFPop["해당 축척의 인쇄 팝업창에서<br />PDF 페이지 스크랩 저장"]:::save
+
+            SavePDF --> SaveXLS
+            SavePDFPop --> SaveXLS
+            CheckPDF -->|No| SaveXLS["추출된 텍스트 데이터 및 이미지 경로<br />ExcelHandler 로 엑셀에 쓰기"]:::save
+
+            SaveXLS --> InsertImgXLS["엑셀 파일 셀 내부에<br />다운로드한 실제 이미지 삽입"]:::save
+            InsertImgXLS --> AutoSave{"처리 건수<br />5건마다?"}:::condition
+            AutoSave -->|Yes| ForceSave["메모리 오염 및 에러 방지용<br />엑셀 5건 주기 자동 저장 (Save)"]:::save
+            AutoSave -->|No| Phase2
+            ForceSave --> Phase2
+            end
+
+            Phase2 -->|모든 유효행 처리 완료| FinalSave["최종 엑셀 정보 저장<br />임시 이미지 삭제 및 브라우저 종료"]:::process
+            FinalSave --> End((크롤링 구동 완료 및 통계 표시)):::startEnd
+        </div>
+
+        <div class="controls">
+            <button onclick="zoomIn()">크게 보기 +</button>
+            <button onclick="zoomOut()">작게 보기 -</button>
+            <button onclick="resetZoom()">크기 초기화</button>
+        </div>
+    </div>
+
+    <!-- Mermaid JS 라이브러리 사용 -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({
+            startOnLoad: true,
+            securityLevel: 'loose',
+            flowchart: {
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+
+        // 줌 기능 구현
+        let currentScale = 1;
+        const svgContainer = document.querySelector('.mermaid');
+
+        window.zoomIn = function () {
+            currentScale += 0.1;
+            applyTransform();
+        }
+
+        window.zoomOut = function () {
+            if (currentScale > 0.4) {
+                currentScale -= 0.1;
+                applyTransform();
+            }
+        }
+
+        window.resetZoom = function () {
+            currentScale = 1;
+            applyTransform();
+        }
+
+        function applyTransform() {
+            const svg = svgContainer.querySelector('svg');
+            if (svg) {
+                svg.style.transform = `scale(${currentScale})`;
+                svg.style.transformOrigin = 'top center';
+                svg.style.transition = 'transform 0.2s';
+            }
+        }
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>축적 변경 PDF 저장 플로우</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+
+        .flow-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 30px;
+            margin: 40px 0;
+        }
+
+        .flow-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+            text-align: center;
+            min-width: 300px;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .decision-box {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(245, 87, 108, 0.3);
+            text-align: center;
+            position: relative;
+            min-width: 350px;
+            animation: fadeInUp 0.6s ease-out 0.2s both;
+        }
+
+        .decision-box::before {
+            content: '?';
+            position: absolute;
+            top: -15px;
+            right: -15px;
+            background: #fff;
+            color: #f5576c;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 24px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .branches {
+            display: flex;
+            gap: 60px;
+            justify-content: center;
+            width: 100%;
+            margin: 40px 0;
+        }
+
+        .branch {
+            flex: 1;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .branch-label {
+            background: #48bb78;
+            color: white;
+            padding: 10px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            font-size: 1.1em;
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.3);
+            animation: fadeInUp 0.6s ease-out 0.4s both;
+        }
+
+        .branch-label.no {
+            background: #4299e1;
+        }
+
+        .method-box {
+            background: white;
+            border: 3px solid #667eea;
+            color: #2d3748;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            animation: fadeInUp 0.6s ease-out 0.6s both;
+        }
+
+        .method-box.popup {
+            border-color: #4299e1;
+        }
+
+        .method-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .method-box.popup .method-title {
+            color: #4299e1;
+        }
+
+        .method-detail {
+            margin: 10px 0;
+            padding: 8px 12px;
+            background: #f7fafc;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #4a5568;
+        }
+
+        .filename-example {
+            background: #edf2f7;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-weight: bold;
+            color: #2d3748;
+            border-left: 4px solid #667eea;
+        }
+
+        .method-box.popup .filename-example {
+            border-left-color: #4299e1;
+        }
+
+        .arrow {
+            font-size: 2em;
+            color: #cbd5e0;
+            animation: bounce 2s infinite;
+        }
+
+        .result-box {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+            color: white;
+            padding: 30px 50px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(72, 187, 120, 0.3);
+            text-align: center;
+            font-size: 1.3em;
+            font-weight: bold;
+            min-width: 400px;
+            animation: fadeInUp 0.6s ease-out 0.8s both;
+        }
+
+        .result-box::before {
+            content: '✓';
+            display: block;
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        .info-section {
+            background: #f7fafc;
+            padding: 30px;
+            border-radius: 15px;
+            margin-top: 40px;
+        }
+
+        .info-title {
+            font-size: 1.5em;
+            color: #2d3748;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .comparison-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: bold;
+        }
+
+        .comparison-table td {
+            padding: 15px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table tr:hover {
+            background: #f7fafc;
+        }
+
+        .highlight {
+            background: #fef5e7;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            color: #d97706;
+        }
+
+        .code-block {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            margin: 20px 0;
+            overflow-x: auto;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .code-comment {
+            color: #68d391;
+        }
+
+        .code-keyword {
+            color: #f687b3;
+        }
+
+        .code-string {
+            color: #fbd38d;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes bounce {
+            0%, 100% {
+                transform: translateY(0);
+            }
+            50% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge-new {
+            background: #48bb78;
+            color: white;
+        }
+
+        .badge-fixed {
+            background: #4299e1;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ 축적 변경 PDF 저장 플로우</h1>
+        <p class="subtitle">Scale-Based PDF Saving Flow</p>
+
+        <div class="flow-container">
+            <!-- Start -->
+            <div class="flow-box">
+                <h2>사용자가 축적 선택</h2>
+                <p>User Selects Map Scale</p>
+                <div style="margin-top: 15px; font-size: 1.1em;">
+                    1/1200 | 1/3000 | 1/6000 | 1/12000
+                </div>
+            </div>
+
+            <div class="arrow">↓</div>
+
+            <!-- Decision -->
+            <div class="decision-box">
+                <h2>축적 == "1200" ?</h2>
+                <p style="margin-top: 10px; opacity: 0.9;">Scale equals 1200?</p>
+            </div>
+
+            <!-- Branches -->
+            <div class="branches">
+                <!-- YES Branch -->
+                <div class="branch">
+                    <div class="branch-label">YES ✓</div>
+                    <div class="arrow">↓</div>
+                    <div class="method-box">
+                        <div class="method-title">메인 페이지 PDF 저장</div>
+                        <div class="method-detail">
+                            <span class="code-keyword">메서드:</span> save_pdf()
+                        </div>
+                        <div class="method-detail">
+                            <span class="code-keyword">페이지:</span> 검색 결과 페이지
+                        </div>
+                        <div class="method-detail">
+                            <span class="code-keyword">축적:</span> 기본값 (1/1200)
+                        </div>
+                        <div class="filename-example">
+                            📄 1_서울특별시강남구_1200.pdf
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NO Branch -->
+                <div class="branch">
+                    <div class="branch-label no">NO ✗</div>
+                    <div class="arrow">↓</div>
+                    <div class="method-box popup">
+                        <div class="method-title">팝업 페이지 PDF 저장 <span class="badge badge-new">NEW</span></div>
+                        <div class="method-detail">
+                            <span class="code-keyword">메서드:</span> save_pdf_from_popup()
+                        </div>
+                        <div class="method-detail">
+                            <span class="code-keyword">페이지:</span> 팝업창 (축적 지정)
+                        </div>
+                        <div class="method-detail">
+                            <span class="code-keyword">URL:</span> ?pnu={PNU}&scale={축적}
+                        </div>
+                        <div class="method-detail">
+                            <span class="code-keyword">축적:</span> <span class="highlight">변경된 축적 반영!</span>
+                        </div>
+                        <div class="filename-example">
+                            📄 1_서울특별시강남구_3000.pdf<br>
+                            📄 1_서울특별시강남구_6000.pdf
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="arrow">↓</div>
+
+            <!-- Result -->
+            <div class="result-box">
+                변경된 축적으로 PDF 저장 완료!
+                <div style="font-size: 0.7em; margin-top: 10px; opacity: 0.9;">
+                    PDF Saved with Correct Scale
+                </div>
+            </div>
+        </div>
+
+        <!-- Comparison Table -->
+        <div class="info-section">
+            <div class="info-title">📊 비교표</div>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>항목</th>
+                        <th>기본 축적 (1/1200)</th>
+                        <th>변경된 축적 (1/3000+) <span class="badge badge-fixed">FIXED</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>사용 페이지</strong></td>
+                        <td>메인 결과 페이지</td>
+                        <td class="highlight">팝업 페이지</td>
+                    </tr>
+                    <tr>
+                        <td><strong>메서드</strong></td>
+                        <td><code>save_pdf()</code></td>
+                        <td><code>save_pdf_from_popup()</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>URL</strong></td>
+                        <td>검색 결과 페이지</td>
+                        <td><code>luLandPop.jsp?pnu={PNU}&scale={축적}</code></td>
+                    </tr>
+                    <tr>
+                        <td><strong>축적 반영</strong></td>
+                        <td>기본값만</td>
+                        <td class="highlight">✅ 지정한 축적</td>
+                    </tr>
+                    <tr>
+                        <td><strong>파일명</strong></td>
+                        <td><code>ID_주소_1200.pdf</code></td>
+                        <td><code>ID_주소_{축적}.pdf</code></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Code Example -->
+        <div class="info-section">
+            <div class="info-title">💻 코드 예시</div>
+            <div class="code-block">
+<span class="code-comment"># crawler.py (라인 491-500)</span>
+<span class="code-keyword">if</span> save_pdf:
+    <span class="code-keyword">if</span> scale == <span class="code-string">"1200"</span>:
+        <span class="code-comment"># 기본 축척: 메인 페이지에서 PDF 저장</span>
+        scraper.save_pdf(sequence_id, address)
+    <span class="code-keyword">elif</span> pnu:
+        <span class="code-comment"># 변경된 축척: 팝업창에서 PDF 저장 ✨</span>
+        scraper.save_pdf_from_popup(sequence_id, address, pnu, scale)
+    <span class="code-keyword">else</span>:
+        <span class="code-comment"># PNU 없으면 기본 방식</span>
+        scraper.save_pdf(sequence_id, address)
+            </div>
+        </div>
+
+        <!-- Testing Guide -->
+        <div class="info-section">
+            <div class="info-title">🧪 테스트 방법</div>
+            <div style="margin-top: 20px;">
+                <h3 style="color: #667eea; margin-bottom: 15px;">GUI에서 테스트</h3>
+                <ol style="line-height: 2; color: #4a5568;">
+                    <li><code>crawler_gui.py</code> 실행</li>
+                    <li>Excel 파일 선택</li>
+                    <li><strong>축적 선택</strong>: 드롭다운에서 <span class="highlight">1/3000</span> 또는 <span class="highlight">1/6000</span> 선택</li>
+                    <li><strong>PDF 다운로드</strong>: 체크박스 활성화 ✓</li>
+                    <li>크롤링 시작</li>
+                    <li><code>pdfs/</code> 폴더에서 결과 확인</li>
+                </ol>
+
+                <h3 style="color: #4299e1; margin: 30px 0 15px;">CLI에서 테스트</h3>
+                <div class="code-block">
+<span class="code-comment"># 1/3000 축적으로 PDF 저장</span>
+python src/crawler.py -f example_data.xlsx --scale 3000
+
+<span class="code-comment"># 1/6000 축적으로 PDF 저장</span>
+python src/crawler.py -f example_data.xlsx --scale 6000
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Changes -->
+        <div class="info-section" style="background: linear-gradient(135deg, #fef5e7 0%, #fdebd0 100%);">
+            <div class="info-title">🔧 최근 수정 사항 (2026-02-12)</div>
+            <div style="margin-top: 20px; line-height: 2; color: #4a5568;">
+                <p><strong>1. URL 수정</strong> <span class="badge badge-fixed">FIXED</span></p>
+                <ul style="margin-left: 30px; margin-top: 10px;">
+                    <li><strong>이전:</strong> <code>{BASE_URL}/luLandPop.jsp?pnu={pnu}&scale={scale}</code></li>
+                    <li><strong>수정:</strong> <code>https://www.eum.go.kr/web/ar/lu/luLandPop.jsp?pnu={pnu}&sMode=search&default_scale=3000&scale={scale}</code></li>
+                    <li><strong>이유:</strong> 이미지 다운로드와 동일한 URL 형식 사용</li>
+                </ul>
+
+                <p style="margin-top: 20px;"><strong>2. 파일명에 축적 추가</strong> <span class="badge badge-new">NEW</span></p>
+                <ul style="margin-left: 30px; margin-top: 10px;">
+                    <li><strong>이전:</strong> <code>{ID}_{주소}.pdf</code></li>
+                    <li><strong>수정:</strong> <code>{ID}_{주소}_{축적}.pdf</code></li>
+                    <li><strong>이유:</strong> 어떤 축적으로 저장되었는지 파일명으로 구분 가능</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="text-align: center; margin-top: 40px; padding-top: 30px; border-top: 2px solid #e2e8f0; color: #718096;">
+            <p>✅ <strong>결론:</strong> 축적을 변경하면 자동으로 팝업창을 사용하여 변경된 축적이 PDF에 정확히 반영됩니다!</p>
+            <p style="margin-top: 10px; font-size: 0.9em;">EUM Crawler v1.3 | 2026-02-12</p>
+        </div>
+    </div>
+</body>
+</html>

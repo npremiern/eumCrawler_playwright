@@ -6,6 +6,9 @@ import shutil
 import subprocess
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).parent.resolve()
+PROJECT_ROOT = SCRIPT_DIR.parent.resolve()
+
 
 def check_requirements():
     """Check if all required packages are installed."""
@@ -35,7 +38,7 @@ def check_requirements():
 def get_version():
     """Extract version from src/config.py."""
     try:
-        config_path = Path("..") / "src" / "config.py"
+        config_path = PROJECT_ROOT / "src" / "config.py"
         with open(config_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip().startswith("VERSION ="):
@@ -73,7 +76,7 @@ def build_executable():
     print("\nBuilding GUI executable...")
     try:
         # Clean previous builds in parent directory
-        parent_dir = Path("..").resolve()
+        parent_dir = PROJECT_ROOT
         for dir_name in ["build", "dist"]:
             dir_path = parent_dir / dir_name
             if dir_path.exists():
@@ -82,10 +85,16 @@ def build_executable():
 
         # Run PyInstaller using Python module (more reliable)
         result = subprocess.run(
-            [sys.executable, "-m", "PyInstaller", "crawler_gui.spec"],
+            [
+                sys.executable, "-m", "PyInstaller", 
+                "--distpath", str(parent_dir / "dist"),
+                "--workpath", str(parent_dir / "build"),
+                "crawler_gui.spec"
+            ],
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            cwd=SCRIPT_DIR
         )
         print("[OK] GUI executable built successfully")
 
@@ -103,7 +112,7 @@ def build_executable():
         # Check potential dist locations (project root or build_tools dir)
         potential_dirs = [
             parent_dir / "dist",
-            Path("dist").resolve()
+            SCRIPT_DIR / "dist"
         ]
         
         renamed = False
@@ -161,8 +170,8 @@ def create_release_package():
     try:
         import platform
         
-        # Paths relative to build_tools directory
-        parent_dir = Path("..").resolve()
+        # Paths relative to project root
+        parent_dir = PROJECT_ROOT
         release_dir = parent_dir / "release_gui"
         docs_dir = parent_dir / "docs"
         
@@ -254,7 +263,7 @@ def main():
     else:
         exe_name = f"crawler_gui_v{version}"
 
-    parent_dir = Path("..").resolve()
+    parent_dir = PROJECT_ROOT
     print(f"\n[OK] Built: {parent_dir / 'dist' / exe_name}")
     print(f"[OK] Package: {parent_dir / 'release_gui' / exe_name}\n")
 

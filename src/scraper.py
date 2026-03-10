@@ -71,7 +71,12 @@ class RealEstateScraper:
             self.context = self.browser.new_context()  # Create context explicitly
             self.page = self.context.new_page()  # Create page from context
             self.page.set_default_timeout(PAGE_LOAD_TIMEOUT)
-            self.log("[green]OK[/green] Browser started")
+            
+            # Navigate to BASE_URL immediately
+            self.log(f"[cyan]Navigating to {BASE_URL}...[/cyan]")
+            self.page.goto(BASE_URL, wait_until="domcontentloaded")
+            
+            self.log("[green]OK[/green] Browser started and navigated to eum.go.kr")
             return True
         except Exception as e:
             self.log(f"[red]Error starting browser: {e}[/red]")
@@ -175,7 +180,7 @@ class RealEstateScraper:
             self.log(f"[yellow]Warning: Error in address pre-check: {e}[/yellow]")
             return -1, None
 
-    def search_address(self, address: str) -> tuple[bool, str]:
+    def search_address(self, address: str, pnu: str = None, scale: str = "1200") -> tuple[bool, str]:
         """
         Search for an address on the website.
         Assumes address has been validated to have 1 result.
@@ -208,6 +213,28 @@ class RealEstateScraper:
                 search_input.fill(address)
                 time.sleep(0.5)
 
+                # Set Scale and scaleFlag before pressing Enter or clicking
+                log_data = self.page.evaluate(f"""
+                    () => {{
+                        let updated = 0;
+                        document.querySelectorAll('[name="scale"]').forEach(e => {{ e.value = '{scale}'; updated++; }});
+                        document.querySelectorAll('[name="scaleFlag"]').forEach(e => {{ e.value = 'Y'; updated++; }});
+                        
+                        document.querySelectorAll('form').forEach(form => {{
+                            if (!form.querySelector('[name="scale"]')) {{
+                                let s = document.createElement('input'); s.type='hidden'; s.name='scale'; s.value='{scale}'; form.appendChild(s);
+                                updated++;
+                            }}
+                            if (!form.querySelector('[name="scaleFlag"]')) {{
+                                let sf = document.createElement('input'); sf.type='hidden'; sf.name='scaleFlag'; sf.value='Y'; form.appendChild(sf);
+                                updated++;
+                            }}
+                        }});
+                        return updated + " elements updated before search";
+                    }}
+                """)
+                self.log(f"Form values set (Enter): {log_data}")
+
                 # Press Enter to trigger search
                 search_input.press("Enter")
                 console.print(f"[cyan]Searching for: {address}[/cyan]")
@@ -222,6 +249,17 @@ class RealEstateScraper:
                 try:
                     # Try to find the dropdown list
                     first_result = self.page.query_selector(first_result_selector)
+                    # Set scale and scaleFlag again
+                    log_data_click = self.page.evaluate(f"""
+                        () => {{
+                            let updated = 0;
+                            document.querySelectorAll('[name="scale"]').forEach(e => {{ e.value = '{scale}'; updated++; }});
+                            document.querySelectorAll('[name="scaleFlag"]').forEach(e => {{ e.value = 'Y'; updated++; }});
+                            
+                            return updated + " elements updated before click";
+                        }}
+                    """)
+                    self.log(f"Form values set (Click): {log_data_click}")                    
                     if first_result:
                         console.print("[cyan]Multiple results found, clicking first item...[/cyan]")
                         first_result.click()
@@ -311,18 +349,21 @@ class RealEstateScraper:
     def download_image_from_popup(self, row: int, address: str, pnu: str, scale: str, 
                                   debug_mode: bool = False, step_event = None) -> Optional[str]:
         """
-        Download image from the popup window for specific scales using a reused tab.
+        축척이 1/1200이 아닐 때(예: 600, 3000 등) 사용되는 이미지 전용 다운로드 로직.
+        토지이음의 메인 결과화면은 항상 기본 1200 축척으로 지도를 초기화하는 특성이 있습니다. 
+        따라서 다른 축척의 지도를 캡처하려면 'luLandPop.jsp'라는 지도 전용 팝업창을 새 탭으로 띄워야 합니다.
+        이 함수는 해당 팝업을 열어 지정된 축척이 제대로 적용된 지도를 이미지(png)로 다운받아 저장합니다.
         
         Args:
-            row: Row number
-            address: Address string
-            pnu: PNU code
-            scale: Map scale
-            debug_mode: Whether to pause before action
-            step_event: Event to wait for
+            row: 엑셀 행 번호
+            address: 주소 문자열
+            pnu: PNU 코드 (팝업 URL 생성을 위한 필수 고유번호)
+            scale: 변경할 축척 (예: "600", "3000")
+            debug_mode: 디버그 모드 플래그
+            step_event: 대기 이벤트
             
         Returns:
-            Path to saved image or None
+            저장된 이미지 경로 또는 실패 시 None
         """
         try:
             # Construct popup URL
@@ -425,15 +466,18 @@ class RealEstateScraper:
 
     def download_image(self, row: int, address: str, scale: str = "1200") -> Optional[str]:
         """
-        Download image from the current page.
+        축척이 1/1200(기본값)일 때 사용되는 일반 지적도 이미지 다운로드 로직.
+        팝업을 띄우지 않고, 현재 주소 검색이 완료된 메인 결과 화면에 떠 있는 지도의 소스(src)를 
+        가져와 이미지를 캡처하여 파일로 저장합니다. 
+        인증 세션 정보 유지를 위해 브라우저 세션 내부에서 직접 fetch를 수행합니다.
 
         Args:
-            row: Row number for naming the image file
-            address: Address string for permanent filename
-            scale: Map scale (default "1200") for filename
+            row: 엑셀 행 번호 (이미지 파일명 작성용)
+            address: 주소 문자열 (이미지 파일명 영구 저장용)
+            scale: 지도 축척 (기본 "1200")
 
         Returns:
-            Path to downloaded image or None if failed
+            다운로드된 이미지 경로 또는 실패 시 None
         """
         try:
             try:
@@ -585,16 +629,20 @@ class RealEstateScraper:
             console.print(f"[yellow]Warning: Error downloading image: {e}[/yellow]")
             return None
 
-    def save_pdf(self, row: int, address: str) -> Optional[str]:
+    def save_pdf(self, row: int, address: str, scale: str = "1200") -> Optional[str]:
         """
-        Save the current page as PDF using the print popup.
+        상단 상세 정보 표부터 하단의 법령정보까지 한 페이지에 담은 전체 결과를 PDF로 저장하는 로직.
+        메인 화면에서 [인쇄] 버튼을 누르고 -> [전체 인쇄] 레이어를 연 뒤 -> 
+        인쇄 전용 깔끔한 팝업창('luLandDetPrintPop.jsp')이 뜨면 이를 감지하여 A4 PDF로 변환 및 저장합니다. 
+        (단, 웹사이트 한계상 이 메인 인쇄창은 1/1200 단일 축척 상태로 출력됩니다)
         
         Args:
-            row: Row number
-            address: Address string for filename
+            row: 엑셀 행 번호
+            address: 주소 문자열 (파일 이름용)
+            scale: 지도 축척 매개변수
             
         Returns:
-            Path to saved PDF or None
+            저장된 PDF 파일 경로 또는 실패 시 None
         """
         try:
             # Check if running in headless mode, as page.pdf only supports headless
@@ -639,8 +687,8 @@ class RealEstateScraper:
             safe_filename = address.replace(" ", "_")
             safe_filename = "".join(c for c in safe_filename if c.isalnum() or c in ("_", "-"))
             
-            # Filename format: {row}_{address}
-            base_filename = f"{row}_{safe_filename}"
+            # Filename format: {row}_{address}_{scale}
+            base_filename = f"{row}_{safe_filename}_{scale}"
             pdf_path = os.path.join(PDF_DIR, f"{base_filename}.pdf")
             
             # Check for duplicates and increment suffix
@@ -664,65 +712,6 @@ class RealEstateScraper:
             self.log(f"[red]Error saving PDF: {e}[/red]")
             return None
 
-    def save_pdf_from_popup(self, row: int, address: str, pnu: str, scale: str) -> Optional[str]:
-        """
-        Save PDF from popup window with specified map scale.
-        
-        Args:
-            row: Row number for filename
-            address: Address string for filename
-            pnu: PNU code for popup URL
-            scale: Map scale (e.g., "3000", "6000")
-            
-        Returns:
-            Path to saved PDF file, or None if failed
-        """
-        try:
-            # Open popup with specified scale (matching download_image_from_popup URL format)
-            popup_url = f"https://www.eum.go.kr/web/ar/lu/luLandPop.jsp?pnu={pnu}&sMode=search&default_scale=3000&scale={scale}"
-            self.log(f"[cyan]Opening popup for PDF: {popup_url}[/cyan]")
-            
-            # Open in new page
-            popup_page = self.context.new_page()
-            popup_page.goto(popup_url, wait_until="domcontentloaded")
-            time.sleep(3)  # Wait for map to render
-            
-            # Sanitize filename
-            safe_filename = address.replace(" ", "_")
-            safe_filename = "".join(c for c in safe_filename if c.isalnum() or c in ("_", "-"))
-            
-            # Filename format: {row}_{address}_{scale}
-            base_filename = f"{row}_{safe_filename}_{scale}"
-            pdf_path = os.path.join(PDF_DIR, f"{base_filename}.pdf")
-            
-            # Check for duplicates and increment suffix
-            if os.path.exists(pdf_path):
-                counter = 1
-                while True:
-                    new_pdf_path = os.path.join(PDF_DIR, f"{base_filename}_{counter}.pdf")
-                    if not os.path.exists(new_pdf_path):
-                        pdf_path = new_pdf_path
-                        break
-                    counter += 1
-            
-            self.log(f"[cyan]Saving PDF to: {pdf_path}[/cyan]")
-            
-            # Save as PDF
-            popup_page.pdf(path=pdf_path, format="A4", print_background=True)
-            
-            self.log(f"[green]OK[/green] PDF saved: {pdf_path}")
-            
-            # Close popup
-            popup_page.close()
-            return pdf_path
-            
-        except Exception as e:
-            self.log(f"[red]Error saving PDF from popup: {e}[/red]")
-            if 'popup_page' in locals():
-                popup_page.close()
-            return None
-
-
     def scrape_address(self, address: str, row: int, pnu: str = None, scale: str = "1200", 
                        debug_mode: bool = False, step_event = None) -> Optional[Dict[str, str]]:
         """
@@ -736,7 +725,7 @@ class RealEstateScraper:
             debug_mode: Whether to run in debug mode
             step_event: Event to wait for
         """
-        success, msg = self.search_address(address)
+        success, msg = self.search_address(address, pnu=pnu, scale=scale)
         if not success:
             self.log(f"[yellow]Skipping scrape due to search failure: {msg}[/yellow]")
             return None
@@ -745,6 +734,8 @@ class RealEstateScraper:
         data = self.extract_data()
 
         # Download image
+        """
+        이전 코드
         image_path = None
         if scale == "1200":
             # 기본 축척(1/1200)만 일반 다운로드
@@ -755,6 +746,8 @@ class RealEstateScraper:
         else:
             # PNU가 없으면 일반 다운로드로 fallback
             image_path = self.download_image(row, address)
+        """
+        image_path = self.download_image(row, address, scale=scale)
             
         if image_path:
             data["image_path"] = image_path

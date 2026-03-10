@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.5.0] - 2026-03-10
+
+### Fixed
+- **Build Tools**: Fixed `pkg_resources` dependencies and absolute path execution bugs allowing GUI to build successfully right from the root directory.
+
 ## [1.4.0] - 2026-01-29
 
 ### Fixed

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 # Application Version
-VERSION = "1.3"
+VERSION = "1.5"
 
 # Target website
 BASE_URL = "https://www.eum.go.kr/"

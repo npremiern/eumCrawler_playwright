@@ -461,7 +461,7 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     row_start_time = time.time()
                     
                     # Search address
-                    success, search_msg = scraper.search_address(address)
+                    success, search_msg = scraper.search_address(address, pnu=pnu, scale=scale)
                     if not success:
                         error_reason = f"주소 검색 실패 ({search_msg})"
                         excel_handler.write_data(row, {"result": "실패", "details": error_reason})
@@ -474,6 +474,8 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     data = scraper.extract_data()
                     
                     # Download image
+                    """
+                    이전 코드
                     image_path = None
                     if scale == "1200":
                         # 기본 축척(1/1200)만 일반 다운로드
@@ -486,18 +488,12 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     else:
                         # PNU가 없으면 일반 다운로드로 fallback
                         image_path = scraper.download_image(sequence_id, address, scale="1200")
+                    """
+                    image_path = scraper.download_image(sequence_id, address, scale=scale)
                     
                     # Save PDF
                     if save_pdf:
-                        if scale == "1200":
-                            # 1/1200 축척: 메인 페이지에서 PDF 저장
-                            scraper.save_pdf(sequence_id, address)
-                        elif pnu:
-                            # 다른 축척: 팝업창에서 PDF 저장
-                            scraper.save_pdf_from_popup(sequence_id, address, pnu, scale)
-                        else:
-                            # PNU 없으면 메인 페이지에서 저장
-                            scraper.save_pdf(sequence_id, address)
+                        scraper.save_pdf(sequence_id, address, scale=scale)
                     else:
                         log(f"[dim]Row {row}: PDF save disabled[/dim]")
                     

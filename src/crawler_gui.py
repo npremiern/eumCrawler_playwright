@@ -43,6 +43,12 @@ class CrawlerGUI:
         self.headless = tk.BooleanVar(value=True)
         self.wait_time = tk.DoubleVar(value=DEFAULT_WAIT_TIME)
         self.verbose = tk.BooleanVar(value=False)
+        self.scale_options = {
+            "축적 1/1200 (기본)": "1200",
+            "축적 1 / 1": "1", "축적 1 / 500": "500", "축적 1 / 600": "600", 
+            "축적 1 / 1000": "1000", "축적 1 / 2400": "2400", "축적 1 / 3000": "3000", 
+            "축적 1 / 6000": "6000", "축적 1 / 12000": "12000"
+        }
         self.scale = tk.StringVar(value="축적 1/1200 (기본)")
         self.save_pdf = tk.BooleanVar(value=True)
         self.debug_mode = tk.BooleanVar(value=False)
@@ -161,11 +167,7 @@ class CrawlerGUI:
         scale_combo = ttk.Combobox(
             settings_frame,
             textvariable=self.scale,
-            values=[
-                "축적 1/1200 (기본)",
-                "축적 1 / 1", "축적 1 / 500", "축적 1 / 600", "축적 1 / 1000",
-                "축적 1 / 2400", "축적 1 / 3000", "축적 1 / 6000", "축적 1 / 12000"
-            ],
+            values=list(self.scale_options.keys()),
             state="readonly",
             width=18
         )
@@ -732,13 +734,12 @@ class CrawlerGUI:
     def run_crawler_thread(self):
         """Run crawler in separate thread."""
         try:
-            # Parse scale
-            scale_str = self.scale.get() # e.g. "축적 1 / 3000" or "축적 1/1200 (기본)"
-            scale = "1200" # Default
-            if "/" in scale_str:
-                # Remove "(기본)" and extract number
-                scale_part = scale_str.split("/")[-1].strip()
-                scale = scale_part.replace("(기본)", "").strip()
+            # Map scale text to exactly its underlying value representation
+            scale_str = self.scale.get()
+            scale = self.scale_options.get(scale_str, "1200") # Default to 1200 if not found
+
+            
+            self.log(f"선택된 축적 파싱 결과: {scale} (원본: {scale_str})")
 
             result = run_crawler(
                 file=self.excel_file.get(),

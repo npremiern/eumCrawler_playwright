@@ -197,7 +197,7 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                 save_pdf: bool = True,
                 step_event = None,
                 progress_callback=None, log_callback=None, stop_event=None,
-                data_callback=None, save_request_event=None):
+                data_callback=None, save_request_event=None, scraper_instance=None):
     """
     Run the crawler with optional callbacks for GUI integration.
     
@@ -274,19 +274,20 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
         log("=" * 50)
         
         # Setup Playwright
-        if verbose:
-            log("[cyan]Checking Playwright setup...[/cyan]")
-        try:
-            log("Playwright 설정 시작...")
-            setup_playwright(log_callback=log_callback)
-            log("Playwright 설정 완료")
-        except Exception as e:
-            error_msg = f"Playwright 설정 오류: {e}"
-            log(error_msg)
-            import traceback
-            log(f"상세 오류:\n{traceback.format_exc()}")
-            result["error"] = error_msg
-            return result
+        if not scraper_instance:
+            if verbose:
+                log("[cyan]Checking Playwright setup...[/cyan]")
+            try:
+                log("Playwright 설정 시작...")
+                setup_playwright(log_callback=log_callback)
+                log("Playwright 설정 완료")
+            except Exception as e:
+                error_msg = f"Playwright 설정 오류: {e}"
+                log(error_msg)
+                import traceback
+                log(f"상세 오류:\n{traceback.format_exc()}")
+                result["error"] = error_msg
+                return result
 
         # Initialize handlers
         try:
@@ -307,16 +308,20 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
             return result
 
         try:
-            log("스크래퍼 초기화 중...")
-            scraper = RealEstateScraper(headless=headless, wait_time=wait, log_callback=log)
-            log("브라우저 시작 중...")
-            if not scraper.start():
-                excel_handler.close()
-                error_msg = "[red]Failed to start browser.[/red]"
-                log(error_msg)
-                result["error"] = "Failed to start browser"
-                return result
-            log("브라우저 시작 성공")
+            if scraper_instance:
+                log("기존 스크래퍼 인스턴스를 재사용합니다...")
+                scraper = scraper_instance
+            else:
+                log("스크래퍼 초기화 중...")
+                scraper = RealEstateScraper(headless=headless, wait_time=wait, log_callback=log)
+                log("브라우저 시작 중...")
+                if not scraper.start():
+                    excel_handler.close()
+                    error_msg = "[red]Failed to start browser.[/red]"
+                    log(error_msg)
+                    result["error"] = "Failed to start browser"
+                    return result
+                log("브라우저 시작 성공")
             
             # Wait 1: After browser start
             wait_for_step("브라우저 시작 완료. 다음 단계: 주소 검증")
@@ -366,11 +371,25 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
 
                 progress(current_row, address, "processing", "검증 중...")
                 
-                # Check validity via Ajax
-                count, pnu = scraper.check_address_count(address, verbose=verbose)
+                # Check for existing PNU
+                pnu = excel_handler.read_pnu(current_row)
+                if pnu:
+                    count = 1
+                    status_msg = f"검증 완료: 기존 PNU 사용|{pnu}"
+                    log(f"[green]Row {current_row}: Using existing PNU: {pnu}[/green]")
+                else:
+                    # Check validity via Ajax
+                    count, pnu = scraper.check_address_count(address, verbose=verbose)
+                    if count > 1:
+                        status_msg = f"검증 완료: {count}건 중 1번째|{pnu}"
+                        log(f"[green]Row {current_row}: Validated ({address}) - Found {count} matches, using first - PNU: {pnu}[/green]")
+                    elif count == 1:
+                        status_msg = f"검증 완료: 유효함|{pnu}"
+                        log(f"[green]Row {current_row}: Validated ({address}) - PNU: {pnu}[/green]")
                 
-                # Calculate Sequence ID (1-based from start_row)
-                sequence_id = current_row - start_row + 1
+                # Keep existing ID from Excel, or leave empty if none
+                excel_id = excel_handler.read_id(current_row)
+                sequence_id = excel_id if excel_id else ""
 
                 if count >= 1:
                     valid_rows.append((current_row, address, pnu, sequence_id))
@@ -379,14 +398,6 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     excel_handler.write_data(current_row, {"pnu": pnu, "id": str(sequence_id)})
                     if data_callback:
                         data_callback(current_row, {"pnu": pnu, "id": str(sequence_id)})
-                    
-                    # Mark as validated in GUI with PNU
-                    if count > 1:
-                        status_msg = f"검증 완료: {count}건 중 1번째|{pnu}"
-                        log(f"[green]Row {current_row}: Validated ({address}) - Found {count} matches, using first - PNU: {pnu}[/green]")
-                    else:
-                        status_msg = f"검증 완료: 유효함|{pnu}"
-                        log(f"[green]Row {current_row}: Validated ({address}) - PNU: {pnu}[/green]")
                         
                     progress(current_row, address, "processing", status_msg)
                 else:
@@ -452,10 +463,10 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                         break
                     
                     # Wait 3: Before each row scraping
-                    wait_for_step(f"Row {row} (ID {sequence_id}) ({address}) 크롤링 시작")
+                    wait_for_step(f"Row {row} (NO {sequence_id}) ({address}) 크롤링 시작")
                         
                     progress(row, address, "processing", "크롤링 중...")
-                    log(f"[bold cyan]Row {row} (ID {sequence_id}):[/bold cyan] {address}")
+                    log(f"[bold cyan]Row {row} (NO {sequence_id}):[/bold cyan] {address}")
 
                     # Scrape data
                     row_start_time = time.time()
@@ -472,6 +483,14 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     
                     # Extract data
                     data = scraper.extract_data()
+                    
+                    if data:
+                        combined_parts = []
+                        for k in ["present_mark1", "present_mark2", "present_mark3"]:
+                            val = data.get(k, "")
+                            if val and str(val).strip() and str(val).strip() != "-":
+                                combined_parts.append(str(val).strip())
+                        data["present_mark_combined"] = ", ".join(combined_parts)
                     
                     # Download image
                     """
@@ -590,7 +609,10 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
             # Cleanup
             log("Cleaning up...")
             if 'scraper' in locals():
-                scraper.close()
+                if not scraper_instance:
+                    scraper.close()
+                else:
+                    log("[dim]브라우저 세션을 유지합니다 (재사용 대기)[/dim]")
             if 'excel_handler' in locals():
                 # Ensure final save
                 try:

@@ -283,17 +283,24 @@ class RealEstateScraper:
 
             except Exception as e:
                 retries += 1
-                last_error = str(e)
-                console.print(f"[yellow]Attempt {retries}/{MAX_RETRIES} failed: {e}[/yellow]")
+                
+                # 오류 메시지 간소화 (첫 줄만 가져오기 및 타임아웃 메시지 직관적으로 변경)
+                error_str = str(e).split('\n')[0]
+                if "Timeout" in error_str:
+                    error_str = "웹페이지 응답 지연 (검색창 접근 시간 초과)"
+                
+                last_error = error_str
+                console.print(f"[yellow]Attempt {retries}/{MAX_RETRIES} failed: {last_error}[/yellow]")
+                
                 if retries < MAX_RETRIES:
                     console.print(f"[cyan]Retrying in {self.wait_time} seconds...[/cyan]")
                     time.sleep(self.wait_time)
                 else:
-                    msg = f"최대 재시도 초과: {last_error}"
+                    msg = f"최대 접속 재시도 횟수 초과: {last_error}"
                     console.print(f"[red]{msg}[/red]")
                     return False, msg
 
-        return False, f"검색 실패 (알 수 없는 오류): {last_error}"
+        return False, f"검색 실패: {last_error}"
 
     def extract_data(self) -> Dict[str, str]:
         """

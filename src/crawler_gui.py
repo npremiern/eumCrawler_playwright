@@ -8,6 +8,7 @@ os.environ['EUMCRAWL_GUI_MODE'] = '1'
 import sys
 import threading
 import time
+import queue
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from pathlib import Path
@@ -54,11 +55,18 @@ class CrawlerGUI:
         self.debug_mode = tk.BooleanVar(value=False)
         
         # State
+        self.is_dark_theme = False
         self.is_running = False
         self.stop_event = threading.Event()
         self.step_event = threading.Event()
         self.save_request_event = threading.Event()
-        self.crawler_thread = None
+        self.scraper = None
+        self.browser_ready = False
+        self.start_crawling_event = threading.Event()
+        self.shutdown_event = threading.Event()
+        
+        self.pnu_fetch_queue = queue.Queue()
+        self.fetch_pnu_cancel = threading.Event()
         
         # UI Elements referencing
         self.log_frame = None
@@ -76,6 +84,53 @@ class CrawlerGUI:
         
         # Center window
         self.center_window()
+        
+        # Disable start button until browser is ready
+        self.start_btn.config(state=tk.DISABLED, text="로딩 중...")
+        
+        # Start browser in background
+        threading.Thread(target=self.init_browser_thread, daemon=True).start()
+
+    def init_browser_thread(self):
+        """Initialize browser in background on startup."""
+        self.log("브라우저를 백그라운드에서 초기화합니다...")
+        try:
+            from scraper import RealEstateScraper
+            setup_playwright(log_callback=self.log_callback) # Use log_callback to strip rich tags
+            self.scraper = RealEstateScraper(headless=self.headless.get(), wait_time=self.wait_time.get(), log_callback=self.log_callback)
+            if self.scraper.start():
+                self.browser_ready = True
+                self.log("▶ 브라우저 초기화 완료! 이제 크롤링을 시작할 수 있습니다.")
+                self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL, text="시작"))
+            else:
+                self.log("브라우저 초기화 실패")
+                self.root.after(0, lambda: self.start_btn.config(state=tk.DISABLED, text="초기화 실패"))
+                return
+                
+            # persistent loop to handle scraping requests on the SAME thread
+            while not self.shutdown_event.is_set():
+                if self.start_crawling_event.is_set():
+                    self.start_crawling_event.clear()
+                    self._execute_crawler_job()
+                else:
+                    try:
+                        # Try to get a PNU fetching task with a short timeout to stay responsive
+                        row, address = self.pnu_fetch_queue.get(timeout=0.2)
+                        if self.fetch_pnu_cancel.is_set():
+                            continue
+                        self._fetch_missing_pnu_job(row, address)
+                    except queue.Empty:
+                        pass
+                    
+        except Exception as e:
+            self.log(f"브라우저 초기화 중 오류: {e}")
+            
+        finally:
+            if self.scraper:
+                try:
+                    self.scraper.close()
+                except Exception:
+                    pass
         
     def center_window(self):
         """Center the window on screen."""
@@ -97,6 +152,34 @@ class CrawlerGUI:
         except Exception as e:
             print(f"Failed to load window geometry: {e}")
         return None
+        
+    def _fetch_missing_pnu_job(self, row, address):
+        """Fetch PNU for a specific row in the background and update Excel/GUI."""
+        if not self.scraper:
+            return
+        
+        # Don't run fetching logic if crawler is currently active
+        if self.is_running:
+            return
+            
+        try:
+            count, pnu = self.scraper.check_address_count(address, verbose=False)
+            if pnu:
+                self.log(f"[dim]PNU 자동 검색 성공 - {address} -> {pnu}[/dim]")
+                # Update excel file
+                file_path = self.excel_file.get()
+                if file_path and os.path.exists(file_path):
+                    # Sleep slightly to prevent rapid file locks
+                    time.sleep(0.1)
+                    handler = ExcelHandler(file_path)
+                    if handler.open():
+                        handler.write_data(row, {"pnu": pnu})
+                        handler.save()
+                        handler.close()
+                # Update GUI
+                self.update_data(row, {"pnu": pnu})
+        except Exception as e:
+            pass # Ignore errors silently here since background fetching error shouldn't disturb using the app
     
     def save_window_geometry(self):
         """Save current window geometry to config file."""
@@ -173,14 +256,23 @@ class CrawlerGUI:
         )
         scale_combo.grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
 
-        # Gear Icon Button (Right of Scale)
+        # Theme Toggle Button (Right of Scale)
+        self.theme_btn = ttk.Button(
+            settings_frame,
+            text="☀️ 라이트",
+            width=8,
+            command=self.toggle_theme
+        )
+        self.theme_btn.grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
+
+        # Gear Icon Button (Right of Theme toggle)
         settings_btn = ttk.Button(
             settings_frame,
             text="⚙", # Unicode gear icon
             width=3,
             command=self.open_settings_popup
         )
-        settings_btn.grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
+        settings_btn.grid(row=0, column=4, padx=5, pady=5, sticky=tk.E)
 
         # Buttons (Right, Horizontal)
         button_frame = ttk.Frame(control_area, padding="10")
@@ -189,6 +281,7 @@ class CrawlerGUI:
         self.start_btn = ttk.Button(
             button_frame,
             text="시작",
+            style="Accent.TButton", # Adds nice default accent color point to main action
             command=self.start_crawler,
             width=10
         )
@@ -219,10 +312,10 @@ class CrawlerGUI:
         table_frame.rowconfigure(0, weight=1)
         main_frame.rowconfigure(3, weight=2)  # Give more weight to table
         
-        columns = ("ID", "ADDRESS", "RESULT", "DETAILS", "PNU", "CLASS", "AREA", "JIGA", "JIGA_YEAR", "ZONE1", "ZONE2", "REGULATION", "IMAGE")
+        columns = ("ID", "ADDRESS", "RESULT", "DETAILS", "PNU", "CLASS", "AREA", "JIGA", "JIGA_YEAR", "ZONE1", "ZONE2", "REGULATION", "COMBINED", "IMAGE")
         self.tree = ttk.Treeview(table_frame, columns=columns, show="headings")
         
-        self.tree.heading("ID", text="ID")
+        self.tree.heading("ID", text="NO")
         self.tree.heading("ADDRESS", text="주소(입력)")
         self.tree.heading("RESULT", text="결과")
         self.tree.heading("DETAILS", text="상세내용")
@@ -234,6 +327,7 @@ class CrawlerGUI:
         self.tree.heading("ZONE1", text="지역지구1")
         self.tree.heading("ZONE2", text="지역지구2")
         self.tree.heading("REGULATION", text="토지이용규제")
+        self.tree.heading("COMBINED", text="통합규제")
         self.tree.heading("IMAGE", text="이미지여부")
         
         self.tree.column("ID", width=50, anchor="center")
@@ -248,6 +342,7 @@ class CrawlerGUI:
         self.tree.column("ZONE1", width=100)
         self.tree.column("ZONE2", width=100)
         self.tree.column("REGULATION", width=100)
+        self.tree.column("COMBINED", width=150)
         self.tree.column("IMAGE", width=80, anchor="center")
         
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -262,6 +357,11 @@ class CrawlerGUI:
         h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
         self.tree.configure(yscroll=v_scrollbar.set, xscroll=h_scrollbar.set)
+        
+        # Bind events for copying
+        self.tree.bind("<Control-c>", self.copy_selection)
+        # Windows/Linux right-click is <Button-3>, macOS is <Button-2> or <Button-3>
+        self.tree.bind("<Button-3>", self.show_context_menu)
         
         # Progress & Statistics (combined in one line)
         status_frame = ttk.LabelFrame(main_frame, text="진행 상황 및 통계", padding="10")
@@ -328,6 +428,54 @@ class CrawlerGUI:
         )
         status_bar.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 0))
     
+    def copy_selection(self, event=None):
+        """Copy selected rows in Treeview to clipboard."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return
+            
+        clipboard_data = []
+        for item in selected_items:
+            values = self.tree.item(item, 'values')
+            # Convert tuple to tab-separated string
+            row_data = '\t'.join(str(v) for v in values)
+            clipboard_data.append(row_data)
+        
+        # Join multiple rows with newline
+        final_text = '\n'.join(clipboard_data)
+        
+        self.root.clipboard_clear()
+        self.root.clipboard_append(final_text)
+        
+    def show_context_menu(self, event):
+        """Show context menu on right click in treeview."""
+        # Check if anything is selected
+        selected_items = self.tree.selection()
+        if not selected_items:
+            # If nothing was selected, select the row under cursor
+            item = self.tree.identify_row(event.y)
+            if item:
+                self.tree.selection_set(item)
+            else:
+                return
+                
+        # Create popup menu
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="복사 (Copy)", command=self.copy_selection)
+        menu.post(event.x_root, event.y_root)
+
+    def toggle_theme(self):
+        """Toggle between dark and light themes using sv_ttk."""
+        import sv_ttk
+        if self.is_dark_theme:
+            sv_ttk.set_theme("light")
+            self.theme_btn.config(text="☀️ 라이트")
+            self.is_dark_theme = False
+        else:
+            sv_ttk.set_theme("dark")
+            self.theme_btn.config(text="🌙 다크")
+            self.is_dark_theme = True
+
     def toggle_log(self):
         """Toggle log visibility."""
         if self.log_visible:
@@ -477,8 +625,9 @@ class CrawlerGUI:
             if self.tree.exists(iid):
                 current_values = list(self.tree.item(iid, "values"))
                 self.log(f"[dim][DEBUG] Current values length: {len(current_values)}[/dim]")
-                # ID=0, ADDRESS=1, RESULT=2, DETAILS=3, PNU=4, CLASS=5, AREA=6, JIGA=7, JIGA_YEAR=8, ZONE1=9, ZONE2=10, REGULATION=11, IMAGE=12
+                # ID=0, ADDRESS=1, RESULT=2, DETAILS=3, PNU=4, CLASS=5, AREA=6, JIGA=7, JIGA_YEAR=8, ZONE1=9, ZONE2=10, REGULATION=11, COMBINED=12, IMAGE=13
                 
+                if "id" in data: current_values[0] = data["id"]
                 if "result" in data: current_values[2] = data["result"]
                 if "details" in data: current_values[3] = data["details"]
                 if "pnu" in data: current_values[4] = data["pnu"]
@@ -497,11 +646,12 @@ class CrawlerGUI:
                 if "present_mark1" in data: current_values[9] = data["present_mark1"]
                 if "present_mark2" in data: current_values[10] = data["present_mark2"]
                 if "present_mark3" in data: current_values[11] = data["present_mark3"]
+                if "present_mark_combined" in data: current_values[12] = data["present_mark_combined"]
                 
                 if "image_status" in data: 
-                    current_values[12] = data["image_status"]
+                    current_values[13] = data["image_status"]
                 elif "image_path" in data: 
-                    current_values[12] = "Y" if data["image_path"] else "N"
+                    current_values[13] = "Y" if data["image_path"] else "N"
                 
                 self.tree.item(iid, values=current_values)
                 self.log(f"[green][DEBUG] Successfully updated tree item {iid}[/green]")
@@ -550,9 +700,15 @@ class CrawlerGUI:
                             break
                     
                     if address:
-                        display_id = current - start + 1
-                        self.tree.insert("", "end", iid=str(current), values=(display_id, address, "", "", "", "", "", "", "", "", "", "", ""))
+                        excel_id = handler.read_id(current)
+                        excel_pnu = handler.read_pnu(current)
+                        display_id = excel_id if excel_id else ""
+                        display_pnu = excel_pnu if excel_pnu else ""
+                        self.tree.insert("", "end", iid=str(current), values=(display_id, address, "", "", display_pnu, "", "", "", "", "", "", "", "", ""))
                         count += 1
+                        
+                        if not excel_pnu:
+                            self.pnu_fetch_queue.put((current, address))
                     
                     current += 1
                     if count >= 1000: # Limit for performance
@@ -625,15 +781,30 @@ class CrawlerGUI:
             # Calculate Sequence ID
             start_row = self.start_row.get()
             seq_id = row - start_row + 1
+            try:
+                if self.tree.exists(str(row)):
+                    seq_id = self.tree.item(str(row))['values'][0]
+            except Exception:
+                pass
             self.progress_var.set(f"{seq_id}번 처리 중: {address}")
         elif status == "success":
             start_row = self.start_row.get()
             seq_id = row - start_row + 1
+            try:
+                if self.tree.exists(str(row)):
+                    seq_id = self.tree.item(str(row))['values'][0]
+            except Exception:
+                pass
             self.progress_var.set(f"{seq_id}번 완료: {address}")
             self.total_success += 1
         elif status == "failed":
             start_row = self.start_row.get()
             seq_id = row - start_row + 1
+            try:
+                if self.tree.exists(str(row)):
+                    seq_id = self.tree.item(str(row))['values'][0]
+            except Exception:
+                pass
             self.progress_var.set(f"{seq_id}번 실패: {address}")
             self.total_failed += 1
         
@@ -654,6 +825,36 @@ class CrawlerGUI:
             f"시간: {elapsed:.1f}s"
         )
         self.stats_label.config(text=stats_text)
+
+    def reset_ui(self):
+        """Reset UI elements to their initial state."""
+        # Cancel background PNU fetching
+        self.fetch_pnu_cancel.set()
+        while not self.pnu_fetch_queue.empty():
+            try:
+                self.pnu_fetch_queue.get_nowait()
+            except queue.Empty:
+                break
+        self.fetch_pnu_cancel.clear()
+        
+        # Clear Treeview
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Reset Stats
+        self.total_processed = 0
+        self.total_success = 0
+        self.total_failed = 0
+        self.start_time = None
+        self.stats_label.config(text="처리: 0 | 성공: 0 | 실패: 0 | 시간: 0s")
+        self.progress_var.set("대기 중...")
+        self.progress_bar.stop()
+        
+        # Clear logs
+        if getattr(self, "log_text", None):
+            self.log_text.delete(1.0, tk.END)
+            
+        self.log("초기화 완료. 언제든 새로 시작할 수 있습니다.")
     
     def log_callback(self, message):
         """Callback for crawler log messages."""
@@ -680,6 +881,14 @@ class CrawlerGUI:
     
     def start_crawler(self):
         """Start the crawler in a separate thread."""
+        current_text = self.start_btn.cget("text")
+        if current_text == "초기화":
+            self.log("초기화 버튼 클릭: 모든 데이터를 삭제하고 처음 상태로 되돌립니다.")
+            self.excel_file.set("")
+            self.reset_ui()
+            self.start_btn.config(state=tk.NORMAL, text="시작")
+            return
+
         # Validate file
         if not self.excel_file.get():
             messagebox.showerror("오류", "Excel 파일을 선택해주세요.")
@@ -719,20 +928,24 @@ class CrawlerGUI:
         self.log(f"디버그 모드: {self.debug_mode.get()}")
         self.log("=" * 50)
         
-        # Start crawler in thread
-        self.crawler_thread = threading.Thread(
-            target=self.run_crawler_thread,
-            daemon=True
-        )
-        self.crawler_thread.start()
+        # Pause background PNU fetching while crawling
+        self.fetch_pnu_cancel.set()
+        while not self.pnu_fetch_queue.empty():
+            try:
+                self.pnu_fetch_queue.get_nowait()
+            except queue.Empty:
+                break
+        
+        # Set event to trigger background thread loop instead of spinning a new thread
+        self.start_crawling_event.set()
     
     def next_step(self):
         """Proceed to next step in debug mode."""
         self.log(">> 다음 단계 진행 요청")
         self.step_event.set()
 
-    def run_crawler_thread(self):
-        """Run crawler in separate thread."""
+    def _execute_crawler_job(self):
+        """Run crawler job triggered by the persistent crawler thread."""
         try:
             # Map scale text to exactly its underlying value representation
             scale_str = self.scale.get()
@@ -755,7 +968,8 @@ class CrawlerGUI:
                 log_callback=self.log_callback,
                 stop_event=self.stop_event,
                 data_callback=self.update_data,
-                save_request_event=self.save_request_event
+                save_request_event=self.save_request_event,
+                scraper_instance=self.scraper
             )
             
             # Update UI on completion
@@ -776,11 +990,14 @@ class CrawlerGUI:
         self.update_stats()
         
         # Update UI
-        self.start_btn.config(text="시작", command=self.start_crawler, state=tk.NORMAL)
+        self.start_btn.config(text="초기화", command=self.start_crawler, state=tk.NORMAL)
         self.stop_btn.config(state=tk.DISABLED)
         self.save_btn.config(state=tk.DISABLED)
         self.progress_var.set("완료")
         self.status_var.set("완료")
+        
+        # Re-enable PNU background fetching for any newly missing rows
+        self.fetch_pnu_cancel.clear()
         
         # Show completion message
         if result.get("error"):
@@ -819,13 +1036,22 @@ class CrawlerGUI:
 
 
 def main():
-    """Main entry point for GUI application."""
+    """Main entry point for GUI."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            myappid = f"eumcrawl.crawler.gui.{VERSION}" # Assuming VERSION is defined elsewhere
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception:
+            pass
+
     # Check Playwright setup (non-blocking)
     root = tk.Tk()
     
-    # Set style
-    style = ttk.Style()
-    style.theme_use('vista' if 'vista' in style.theme_names() else 'winnative' if 'winnative' in style.theme_names() else 'clam')
+    # Set style to dark modern Windows 11 using sv_ttk
+    import sv_ttk
+    sv_ttk.set_theme("light")
     
     app = CrawlerGUI(root)
     
@@ -833,6 +1059,10 @@ def main():
     def on_closing():
         # Save window geometry before closing
         app.save_window_geometry()
+        
+        
+        # Signal background thread to shut down
+        app.shutdown_event.set()
         
         if app.is_running:
             if messagebox.askokcancel("종료", "크롤링이 진행 중입니다. 정말 종료하시겠습니까?"):

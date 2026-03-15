@@ -48,6 +48,40 @@ class ExcelHandler:
             console.print(f"[red]Error opening Excel file: {e}[/red]")
             return False
 
+    def read_id(self, row: int) -> Optional[str]:
+        """
+        Read ID from the specified row.
+
+        Args:
+            row: Row number (1-indexed)
+
+        Returns:
+            ID string or None if empty
+        """
+        try:
+            cell = self.worksheet[f"{EXCEL_COLUMNS['ID']}{row}"]
+            val = cell.value
+
+            if val is not None and str(val).strip():
+                return str(val).strip()
+            return None
+        except Exception as e:
+            console.print(f"[yellow]Warning: Error reading ID row {row}: {e}[/yellow]")
+            return None
+
+    def read_pnu(self, row: int) -> Optional[str]:
+        """Read PNU from the specified row."""
+        try:
+            cell = self.worksheet[f"{EXCEL_COLUMNS['PNU']}{row}"]
+            val = cell.value
+
+            if val is not None and str(val).strip():
+                return str(val).strip()
+            return None
+        except Exception as e:
+            console.print(f"[yellow]Warning: Error reading PNU row {row}: {e}[/yellow]")
+            return None
+
     def read_address(self, row: int) -> Optional[str]:
         """
         Read address from the specified row.
@@ -119,6 +153,8 @@ class ExcelHandler:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK2']}{row}"] = data["present_mark2"]
             if "present_mark3" in data:
                 self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK3']}{row}"] = data["present_mark3"]
+            if "present_mark_combined" in data:
+                self.worksheet[f"{EXCEL_COLUMNS['PRESENT_MARK_COMBINED']}{row}"] = data["present_mark_combined"]
             
             # Write status/error info
             if "result" in data:

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 # Application Version
-VERSION = "1.5"
+VERSION = "1.6"
 
 # Target website
 BASE_URL = "https://www.eum.go.kr/"
@@ -25,14 +25,15 @@ EXCEL_COLUMNS = {
     "PRESENT_MARK1": "J",      # Output: Zoning designation 1 (지역지구1)
     "PRESENT_MARK2": "K",      # Output: Zoning designation 2 (지역지구2)
     "PRESENT_MARK3": "L",      # Output: Land use regulation (토지이용규제)
-    "IMAGE_STATUS": "M",       # Output: Image availability (Y/N)
-    "IMAGE": "N",              # Output: Actual embedded image (optional)
+    "PRESENT_MARK_COMBINED": "M", # Output: Combined zoning and regulations (통합규제)
+    "IMAGE_STATUS": "N",       # Output: Image availability (Y/N)
+    "IMAGE": "O",              # Output: Actual embedded image (optional)
 }
 
 # Template headers for creating new Excel files
 TEMPLATE_HEADERS = [
-    "ID", "주소(입력)", "결과", "상세내용", "PNU", "지목", "면적", "지가", "지가연도",
-    "지역지구1", "지역지구2", "토지이용규제", "이미지여부"
+    "NO", "주소(입력)", "결과", "상세내용", "PNU", "지목", "면적", "지가", "지가연도",
+    "지역지구1", "지역지구2", "토지이용규제", "통합규제", "이미지여부"
 ]
 
 # CSS Selectors for web scraping

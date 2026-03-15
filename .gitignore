@@ -55,3 +55,6 @@ release_gui/
 # OS
 .DS_Store
 Thumbs.db
+
+nul
+NUL

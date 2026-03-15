@@ -8,7 +8,7 @@ ws = wb.active
 ws.title = "부동산 정보"
 
 # Add headers
-headers = ["ID", "주소 (입력)", "주소", "분류", "면적", "지가", "표시1", "표시2", "표시3", "이미지"]
+headers = ["NO", "주소 (입력)", "주소", "분류", "면적", "지가", "표시1", "표시2", "표시3", "이미지"]
 for col_idx, header in enumerate(headers, start=1):
     ws.cell(row=1, column=col_idx, value=header)
 

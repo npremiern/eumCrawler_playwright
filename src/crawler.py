@@ -197,7 +197,8 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                 save_pdf: bool = True,
                 step_event = None,
                 progress_callback=None, log_callback=None, stop_event=None,
-                data_callback=None, save_request_event=None, scraper_instance=None):
+                data_callback=None, save_request_event=None, scraper_instance=None,
+                max_retries: int = 2):
     """
     Run the crawler with optional callbacks for GUI integration.
     
@@ -471,8 +472,19 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     # Scrape data
                     row_start_time = time.time()
                     
-                    # Search address
-                    success, search_msg = scraper.search_address(address, pnu=pnu, scale=scale)
+                    # Search address (네트워크 상태 반영 재시도 횟수)
+                    max_attempts = max_retries
+                    success = False
+                    search_msg = ""
+                    for attempt in range(1, max_attempts + 1):
+                        success, search_msg = scraper.search_address(address, pnu=pnu, scale=scale)
+                        if success:
+                            break
+                        if attempt < max_attempts:
+                            wait_sec = min(2 * attempt, 8)  # 2초, 4초, 8초 (점진적 증가)
+                            log(f"[yellow]Row {row}: {attempt}회 실패, {wait_sec}초 후 재시도... ({search_msg})[/yellow]")
+                            time.sleep(wait_sec)
+                    
                     if not success:
                         error_reason = f"주소 검색 실패 ({search_msg})"
                         excel_handler.write_data(row, {"result": "실패", "details": error_reason})

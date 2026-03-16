@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 # Application Version
-VERSION = "1.6"
+VERSION = "1.7"
 
 # Target website
 BASE_URL = "https://www.eum.go.kr/"
@@ -33,7 +33,7 @@ EXCEL_COLUMNS = {
 # Template headers for creating new Excel files
 TEMPLATE_HEADERS = [
     "NO", "주소(입력)", "결과", "상세내용", "PNU", "지목", "면적", "지가", "지가연도",
-    "지역지구1", "지역지구2", "토지이용규제", "통합규제", "이미지여부"
+    "지역지구1", "지역지구2", "토지이용규제", "통합", "이미지여부"
 ]
 
 # CSS Selectors for web scraping

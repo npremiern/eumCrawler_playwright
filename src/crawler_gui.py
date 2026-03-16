@@ -10,7 +10,9 @@ import threading
 import time
 import queue
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+from tkinter import filedialog, messagebox, scrolledtext
 from pathlib import Path
 from typing import Optional
 
@@ -30,7 +32,7 @@ class CrawlerGUI:
         self.config_file = os.path.join(BASE_DIR, "gui_config.json")
         
         # Load saved window geometry or use default
-        saved_geometry = self.load_window_geometry()
+        saved_geometry, saved_theme = self.load_window_geometry()
         if saved_geometry:
             self.root.geometry(saved_geometry)
         else:
@@ -55,7 +57,7 @@ class CrawlerGUI:
         self.debug_mode = tk.BooleanVar(value=False)
         
         # State
-        self.is_dark_theme = False
+        self.is_dark_theme = (saved_theme == 'dark')
         self.is_running = False
         self.stop_event = threading.Event()
         self.step_event = threading.Event()
@@ -67,6 +69,11 @@ class CrawlerGUI:
         
         self.pnu_fetch_queue = queue.Queue()
         self.fetch_pnu_cancel = threading.Event()
+        
+        self.net_status_var = tk.StringVar(value="확인 중...")
+        self.net_status_color = "gray"
+        self.max_retries = tk.IntVar(value=2)
+        self.net_response_ms = 0.0  # last measured response time (ms)
         
         # UI Elements referencing
         self.log_frame = None
@@ -81,6 +88,12 @@ class CrawlerGUI:
         
         # Create UI
         self.create_widgets()
+        
+        # Sync theme button label to match the already-applied saved theme
+        if self.is_dark_theme:
+            self.theme_btn.config(text="🌙 다크")
+        else:
+            self.theme_btn.config(text="☀️ 라이트")
         
         # Center window
         self.center_window()
@@ -101,7 +114,10 @@ class CrawlerGUI:
             if self.scraper.start():
                 self.browser_ready = True
                 self.log("▶ 브라우저 초기화 완료! 이제 크롤링을 시작할 수 있습니다.")
-                self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL, text="시작"))
+                self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL, text="시작", bootstyle="success"))
+                
+                # Start periodic network monitor
+                threading.Thread(target=self._start_network_monitor, daemon=True).start()
             else:
                 self.log("브라우저 초기화 실패")
                 self.root.after(0, lambda: self.start_btn.config(state=tk.DISABLED, text="초기화 실패"))
@@ -148,10 +164,10 @@ class CrawlerGUI:
                 import json
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
-                    return config.get('window_geometry')
+                    return config.get('window_geometry'), config.get('theme', 'light')
         except Exception as e:
             print(f"Failed to load window geometry: {e}")
-        return None
+        return None, 'light'
         
     def _fetch_missing_pnu_job(self, row, address):
         """Fetch PNU for a specific row in the background and update Excel/GUI."""
@@ -181,12 +197,69 @@ class CrawlerGUI:
         except Exception as e:
             pass # Ignore errors silently here since background fetching error shouldn't disturb using the app
     
+    def _start_network_monitor(self):
+        """Periodically check network response time to target site."""
+        import urllib.request
+        from config import BASE_URL
+        CHECK_INTERVAL = 30  # seconds
+        
+        while not self.shutdown_event.is_set():
+            self._check_network_response(BASE_URL)
+            # Wait for next check interval (check shutdown every second)
+            for _ in range(CHECK_INTERVAL):
+                if self.shutdown_event.is_set():
+                    break
+                self.shutdown_event.wait(timeout=1.0)
+    
+    def _check_network_response(self, url):
+        """Ping URL and update network status label."""
+        import urllib.request
+        import time as _time
+        elapsed_ms = 0.0
+        color = "red"
+        text = "연결 안 됨"
+        try:
+            start = _time.time()
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read(512)  # read small chunk
+            elapsed_ms = (_time.time() - start) * 1000
+            
+            if elapsed_ms < 1000:
+                color = "#2ecc71"  # green
+                text = f"빠름 ({elapsed_ms:.0f}ms)"
+            elif elapsed_ms < 3000:
+                color = "#f39c12"  # orange/yellow
+                text = f"보통 ({elapsed_ms:.0f}ms)"
+            else:
+                color = "#e74c3c"  # red
+                text = f"느림 ({elapsed_ms:.0f}ms)"
+        except Exception:
+            elapsed_ms = 0.0
+            color = "#e74c3c"
+            text = "연결 안 됨"
+        
+        _elapsed = elapsed_ms
+        def _update(c=color, t=text, ms=_elapsed):
+            self.net_canvas.itemconfig(self.net_dot, fill=c)
+            self.net_status_var.set(t)
+            self.net_response_ms = ms
+        self.root.after(0, _update)
+    
     def save_window_geometry(self):
-        """Save current window geometry to config file."""
+        """Save current window geometry and theme to config file."""
         try:
             import json
-            geometry = self.root.geometry()
-            config = {'window_geometry': geometry}
+            # Load existing config first to preserve other keys
+            config = {}
+            if os.path.exists(self.config_file):
+                try:
+                    with open(self.config_file, 'r') as f:
+                        config = json.load(f)
+                except Exception:
+                    config = {}
+            config['window_geometry'] = self.root.geometry()
+            config['theme'] = 'dark' if self.is_dark_theme else 'light'
             with open(self.config_file, 'w') as f:
                 json.dump(config, f)
         except Exception as e:
@@ -220,10 +293,10 @@ class CrawlerGUI:
         file_entry = ttk.Entry(file_frame, textvariable=self.excel_file, width=50)
         file_entry.grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
         
-        browse_btn = ttk.Button(file_frame, text="찾아보기...", command=self.browse_file)
+        browse_btn = ttk.Button(file_frame, text="찾아보기...", command=self.browse_file, bootstyle="outline-primary")
         browse_btn.grid(row=0, column=2, padx=5)
         
-        template_btn = ttk.Button(file_frame, text="양식 다운받기", command=self.download_template)
+        template_btn = ttk.Button(file_frame, text="양식 다운받기", command=self.download_template, bootstyle="outline-info")
         template_btn.grid(row=0, column=3, padx=5)
         
         # Control Area (Settings + Buttons)
@@ -259,9 +332,10 @@ class CrawlerGUI:
         # Theme Toggle Button (Right of Scale)
         self.theme_btn = ttk.Button(
             settings_frame,
-            text="☀️ 라이트",
-            width=8,
-            command=self.toggle_theme
+            text="🌙 다크" if self.is_dark_theme else "☀️ 라이트",
+            width=10,
+            command=self.toggle_theme,
+            bootstyle="outline-light" if self.is_dark_theme else "outline-secondary"
         )
         self.theme_btn.grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
 
@@ -270,7 +344,8 @@ class CrawlerGUI:
             settings_frame,
             text="⚙", # Unicode gear icon
             width=3,
-            command=self.open_settings_popup
+            command=self.open_settings_popup,
+            bootstyle="link"
         )
         settings_btn.grid(row=0, column=4, padx=5, pady=5, sticky=tk.E)
 
@@ -281,7 +356,7 @@ class CrawlerGUI:
         self.start_btn = ttk.Button(
             button_frame,
             text="시작",
-            style="Accent.TButton", # Adds nice default accent color point to main action
+            bootstyle="success",
             command=self.start_crawler,
             width=10
         )
@@ -290,6 +365,7 @@ class CrawlerGUI:
         self.stop_btn = ttk.Button(
             button_frame,
             text="중지",
+            bootstyle="danger-outline",
             command=self.stop_crawler,
             state=tk.DISABLED,
             width=10
@@ -299,6 +375,7 @@ class CrawlerGUI:
         self.save_btn = ttk.Button(
             button_frame,
             text="저장",
+            bootstyle="info-outline",
             command=self.save_data,
             state=tk.DISABLED,
             width=10
@@ -388,6 +465,22 @@ class CrawlerGUI:
         )
         self.stats_label.grid(row=0, column=2, padx=(10, 0))
         
+        # Network status indicator (far right) - Canvas dot + label
+        net_frame = ttk.Frame(status_frame)
+        net_frame.grid(row=0, column=3, padx=(15, 5))
+        
+        self.net_canvas = tk.Canvas(net_frame, width=14, height=14, 
+                                    highlightthickness=0, bd=0)
+        self.net_canvas.pack(side=tk.LEFT, padx=(0, 4))
+        self.net_dot = self.net_canvas.create_oval(2, 2, 12, 12, fill="gray", outline="")
+        
+        self.net_text_label = ttk.Label(
+            net_frame,
+            textvariable=self.net_status_var,
+            font=("맑은 고딕", 9)
+        )
+        self.net_text_label.pack(side=tk.LEFT)
+        
         # Log Control (Button to toggle log)
         log_control_frame = ttk.Frame(main_frame)
         log_control_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 0))
@@ -465,16 +558,18 @@ class CrawlerGUI:
         menu.post(event.x_root, event.y_root)
 
     def toggle_theme(self):
-        """Toggle between dark and light themes using sv_ttk."""
-        import sv_ttk
+        """Toggle between dark and light themes using ttkbootstrap."""
+        style = ttk.Style()
         if self.is_dark_theme:
-            sv_ttk.set_theme("light")
-            self.theme_btn.config(text="☀️ 라이트")
+            style.theme_use("litera")
+            self.theme_btn.config(text="☀️ 라이트", bootstyle="outline-secondary")
             self.is_dark_theme = False
         else:
-            sv_ttk.set_theme("dark")
-            self.theme_btn.config(text="🌙 다크")
+            style.theme_use("superhero")
+            self.theme_btn.config(text="🌙 다크", bootstyle="outline-light")
             self.is_dark_theme = True
+        # Persist the selected theme immediately
+        self.save_window_geometry()
 
     def toggle_log(self):
         """Toggle log visibility."""
@@ -520,6 +615,17 @@ class CrawlerGUI:
         ttk.Spinbox(
             wait_frame, from_=1.0, to=60.0, increment=0.5, textvariable=self.wait_time, width=10
         ).pack(side=tk.RIGHT)
+        
+        # Retry Count
+        retry_frame = ttk.Frame(frame)
+        retry_frame.pack(fill=tk.X, pady=10)
+        ttk.Label(retry_frame, text="실패 시 재시도 횟수:").pack(side=tk.LEFT)
+        ttk.Spinbox(
+            retry_frame, from_=1, to=10, textvariable=self.max_retries, width=10
+        ).pack(side=tk.RIGHT)
+        ttk.Label(frame, text="⚠️ 네트워크가 느릴 경우 자동으로 회수를 늘립니다.",
+                  font=("맑은 고딕", 8), foreground="gray"
+        ).pack(anchor=tk.W, pady=(0, 5))
         
         # Headless (Moved from main)
         ttk.Checkbutton(
@@ -572,7 +678,9 @@ class CrawlerGUI:
         self.is_running = False
         
         # Reset buttons
-        self.start_btn.config(text="시작", command=self.start_crawler, state=tk.NORMAL)
+        self.start_btn.config(text="시작", command=self.start_crawler, state=tk.NORMAL, bootstyle="success")
+        self.stop_btn.config(state=tk.DISABLED, bootstyle="danger-outline")
+        self.save_btn.config(state=tk.DISABLED, bootstyle="info-outline")
         self.stop_btn.config(state=tk.DISABLED)
         self.save_btn.config(state=tk.DISABLED)
         
@@ -909,13 +1017,13 @@ class CrawlerGUI:
         
         # Update UI
         if self.debug_mode.get():
-            self.start_btn.config(text="다음 (Next)", command=self.next_step, state=tk.NORMAL)
+            self.start_btn.config(text="다음 (Next)", command=self.next_step, state=tk.NORMAL, bootstyle="info")
             self.log("디버그 모드 시작: '다음' 버튼을 눌러 진행하세요.")
         else:
             self.start_btn.config(state=tk.DISABLED)
             
-        self.stop_btn.config(state=tk.NORMAL)
-        self.save_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.NORMAL, bootstyle="danger")
+        self.save_btn.config(state=tk.NORMAL, bootstyle="info")
         self.progress_bar.start()
         self.progress_var.set("크롤링 시작 중...")
         self.status_var.set("실행 중")
@@ -951,8 +1059,23 @@ class CrawlerGUI:
             scale_str = self.scale.get()
             scale = self.scale_options.get(scale_str, "1200") # Default to 1200 if not found
 
+            # Compute effective retry count based on network status
+            base_retries = self.max_retries.get()
+            ms = self.net_response_ms
+            if ms == 0 or ms >= 5000:
+                # 연결 안 됨 또는 매우 느림 → 설정값 +2
+                effective_retries = base_retries + 2
+                retry_reason = f"연결 불안정 ({ms:.0f}ms) → 재시도 {effective_retries}회"
+            elif ms >= 3000:
+                # 느림 → 설정값 +1
+                effective_retries = base_retries + 1
+                retry_reason = f"느린 네트워크 ({ms:.0f}ms) → 재시도 {effective_retries}회"
+            else:
+                effective_retries = base_retries
+                retry_reason = f"네트워크 ({ms:.0f}ms) → 재시도 {effective_retries}회"
             
             self.log(f"선택된 축적 파싱 결과: {scale} (원본: {scale_str})")
+            self.log(f"재시도 설정: {retry_reason}")
 
             result = run_crawler(
                 file=self.excel_file.get(),
@@ -969,7 +1092,8 @@ class CrawlerGUI:
                 stop_event=self.stop_event,
                 data_callback=self.update_data,
                 save_request_event=self.save_request_event,
-                scraper_instance=self.scraper
+                scraper_instance=self.scraper,
+                max_retries=effective_retries
             )
             
             # Update UI on completion
@@ -990,9 +1114,9 @@ class CrawlerGUI:
         self.update_stats()
         
         # Update UI
-        self.start_btn.config(text="초기화", command=self.start_crawler, state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        self.save_btn.config(state=tk.DISABLED)
+        self.start_btn.config(text="초기화", command=self.reset_ui, state=tk.NORMAL, bootstyle="warning")
+        self.stop_btn.config(state=tk.DISABLED, bootstyle="danger-outline")
+        self.save_btn.config(state=tk.DISABLED, bootstyle="info-outline")
         self.progress_var.set("완료")
         self.status_var.set("완료")
         
@@ -1046,12 +1170,27 @@ def main():
         except Exception:
             pass
 
-    # Check Playwright setup (non-blocking)
-    root = tk.Tk()
+    # Restore saved theme
+    import json as _json
+    from config import BASE_DIR as _BASE_DIR
+    _cfg_path = os.path.join(_BASE_DIR, "gui_config.json")
+    _saved_theme = "light"
+    if os.path.exists(_cfg_path):
+        try:
+            with open(_cfg_path, 'r') as _f:
+                _saved_theme = _json.load(_f).get('theme', 'light')
+        except Exception:
+            pass
     
-    # Set style to dark modern Windows 11 using sv_ttk
-    import sv_ttk
-    sv_ttk.set_theme("light")
+    # Map 'light'/'dark' to specific bootstrap themes
+    _bootstrap_theme = "litera" if _saved_theme == "light" else "superhero"
+    
+    # Initialize ttkbootstrap Window
+    root = ttk.Window(
+        title=f"토지이용계획확인원 데이터가져오기",
+        themename=_bootstrap_theme,
+        resizable=(True, True)
+    )
     
     app = CrawlerGUI(root)
     

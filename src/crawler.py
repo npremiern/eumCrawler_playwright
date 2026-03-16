@@ -466,7 +466,7 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                     # Wait 3: Before each row scraping
                     wait_for_step(f"Row {row} (NO {sequence_id}) ({address}) 크롤링 시작")
                         
-                    progress(row, address, "processing", "크롤링 중...")
+                    progress(row, address, "processing", "[이용계획 조회]")
                     log(f"[bold cyan]Row {row} (NO {sequence_id}):[/bold cyan] {address}")
 
                     # Scrape data
@@ -520,10 +520,12 @@ def run_crawler(file: str, start_row: int, headless: bool, wait: float, verbose:
                         # PNU가 없으면 일반 다운로드로 fallback
                         image_path = scraper.download_image(sequence_id, address, scale="1200")
                     """
+                    progress(row, address, "processing", "[도면 저장]")
                     image_path = scraper.download_image(sequence_id, address, scale=scale)
                     
                     # Save PDF
                     if save_pdf:
+                        progress(row, address, "processing", "[PDF 저장]")
                         scraper.save_pdf(sequence_id, address, scale=scale)
                     else:
                         log(f"[dim]Row {row}: PDF save disabled[/dim]")

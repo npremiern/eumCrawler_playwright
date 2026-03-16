@@ -84,6 +84,7 @@ class CrawlerGUI:
         self.total_processed = 0
         self.total_success = 0
         self.total_failed = 0
+        self.total_count = 0  # Total addresses loaded from Excel
         self.start_time = None
         
         # Create UI
@@ -268,97 +269,108 @@ class CrawlerGUI:
     def create_widgets(self):
         """Create all GUI widgets."""
         # Main container
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame = ttk.Frame(self.root)
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=10, pady=10)
         
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
+        # Configure grid weights
+        main_frame.columnconfigure(0, weight=1)
         
         # Title
         title_label = ttk.Label(
             main_frame,
             text=f"토지이용계획확인원 데이터가져오기 v{VERSION}",
-            font=("맑은 고딕", 16, "bold")
+            font=("맑은 고딕", 16, "bold"),
+            bootstyle="primary"
         )
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
+        title_label.grid(row=0, column=0, pady=(0, 15))
         
         # File selection
-        file_frame = ttk.LabelFrame(main_frame, text="Excel 파일 선택", padding="10")
+        file_frame = ttk.LabelFrame(main_frame, text=" Excel 파일 선택 ")
         file_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        file_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(file_frame, text="파일:").grid(row=0, column=0, padx=5, sticky=tk.W)
-        file_entry = ttk.Entry(file_frame, textvariable=self.excel_file, width=50)
-        file_entry.grid(row=0, column=1, padx=5, sticky=(tk.W, tk.E))
+        # Inner padding for file_frame
+        file_inner = ttk.Frame(file_frame)
+        file_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        file_inner.columnconfigure(1, weight=1)
         
-        browse_btn = ttk.Button(file_frame, text="찾아보기...", command=self.browse_file, bootstyle="outline-primary")
+        ttk.Label(file_inner, text="파일:").grid(row=0, column=0, padx=(0, 5), sticky=tk.W)
+        file_entry = ttk.Entry(file_inner, textvariable=self.excel_file)
+        file_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+        
+        browse_btn = ttk.Button(file_inner, text="찾아보기...", command=self.browse_file, bootstyle="outline-primary", width=12)
         browse_btn.grid(row=0, column=2, padx=5)
         
-        template_btn = ttk.Button(file_frame, text="양식 다운받기", command=self.download_template, bootstyle="outline-info")
+        template_btn = ttk.Button(file_inner, text="양식 다운받기", command=self.download_template, bootstyle="outline-info", width=14)
         template_btn.grid(row=0, column=3, padx=5)
-        
+
         # Control Area (Settings + Buttons)
+        # We use a single frame for both, but align them in the same grid row for perfect middle alignment
         control_area = ttk.Frame(main_frame)
-        control_area.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        control_area.columnconfigure(0, weight=6)  # Settings takes 60%
-        control_area.columnconfigure(1, weight=4)  # Buttons takes 40%
+        control_area.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        control_area.columnconfigure(0, weight=1)
         
         # Settings (Left)
-        settings_frame = ttk.LabelFrame(control_area, text="설정", padding="10")
-        settings_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        settings_frame = ttk.LabelFrame(control_area, text=" 설정 ")
+        settings_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
         
-        # Quick Settings: PDF & Scale
+        settings_inner = ttk.Frame(settings_frame)
+        settings_inner.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
+        
         # PDF Checkbox
         pdf_check = ttk.Checkbutton(
-            settings_frame,
+            settings_inner,
             text="PDF 다운로드",
             variable=self.save_pdf
         )
-        pdf_check.grid(row=0, column=0, padx=5, pady=5, sticky=tk.W)
+        pdf_check.grid(row=0, column=0, padx=(0, 15), sticky=tk.W)
         
-        # Scale (Grouped next to PDF with some spacing)
-        ttk.Label(settings_frame, text="지적도 축적 :").grid(row=0, column=1, padx=(10, 5), sticky=tk.W)
+        # Scale
+        ttk.Label(settings_inner, text="지적도 축적:").grid(row=0, column=1, padx=(0, 5), sticky=tk.W)
         scale_combo = ttk.Combobox(
-            settings_frame,
+            settings_inner,
             textvariable=self.scale,
             values=list(self.scale_options.keys()),
             state="readonly",
             width=18
         )
-        scale_combo.grid(row=0, column=2, padx=5, pady=5, sticky=tk.W)
+        scale_combo.grid(row=0, column=2, padx=(0, 15), sticky=tk.W)
 
-        # Theme Toggle Button (Right of Scale)
+        # Theme & Settings Buttons Group
+        util_btn_frame = ttk.Frame(settings_inner)
+        util_btn_frame.grid(row=0, column=3, sticky=tk.E)
+        
         self.theme_btn = ttk.Button(
-            settings_frame,
+            util_btn_frame,
             text="🌙 다크" if self.is_dark_theme else "☀️ 라이트",
             width=10,
             command=self.toggle_theme,
             bootstyle="outline-light" if self.is_dark_theme else "outline-secondary"
         )
-        self.theme_btn.grid(row=0, column=3, padx=5, pady=5, sticky=tk.E)
+        self.theme_btn.pack(side=tk.LEFT, padx=(0, 5))
 
-        # Gear Icon Button (Right of Theme toggle)
         settings_btn = ttk.Button(
-            settings_frame,
-            text="⚙", # Unicode gear icon
+            util_btn_frame,
+            text="⚙",
             width=3,
             command=self.open_settings_popup,
             bootstyle="link"
         )
-        settings_btn.grid(row=0, column=4, padx=5, pady=5, sticky=tk.E)
+        settings_btn.pack(side=tk.LEFT)
 
-        # Buttons (Right, Horizontal)
-        button_frame = ttk.Frame(control_area, padding="10")
-        button_frame.grid(row=0, column=1, sticky=(tk.E)) # Align right
+        # Main Action Buttons (Right)
+        # Vertically align this frame with the settings_frame
+        button_frame = ttk.Frame(control_area)
+        button_frame.grid(row=0, column=1, sticky=tk.E) # Middle alignment by default in grid row
         
         self.start_btn = ttk.Button(
             button_frame,
             text="시작",
             bootstyle="success",
             command=self.start_crawler,
-            width=10
+            width=12
         )
         self.start_btn.pack(side=tk.LEFT, padx=5)
         
@@ -368,7 +380,7 @@ class CrawlerGUI:
             bootstyle="danger-outline",
             command=self.stop_crawler,
             state=tk.DISABLED,
-            width=10
+            width=12
         )
         self.stop_btn.pack(side=tk.LEFT, padx=5)
         
@@ -378,19 +390,30 @@ class CrawlerGUI:
             bootstyle="info-outline",
             command=self.save_data,
             state=tk.DISABLED,
-            width=10
+            width=12
         )
-        self.save_btn.pack(side=tk.LEFT, padx=5)
+        self.save_btn.pack(side=tk.LEFT, padx=(5, 0))
         
         # Data Table (Treeview)
-        table_frame = ttk.LabelFrame(main_frame, text="작업 목록", padding="10")
+        table_frame = ttk.LabelFrame(main_frame, text=" 작업 목록 ")
         table_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        table_frame.columnconfigure(0, weight=1)
-        table_frame.rowconfigure(0, weight=1)
+        
+        table_inner = ttk.Frame(table_frame)
+        table_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        table_inner.columnconfigure(0, weight=1)
+        table_inner.rowconfigure(0, weight=1)
         main_frame.rowconfigure(3, weight=2)  # Give more weight to table
         
         columns = ("ID", "ADDRESS", "RESULT", "DETAILS", "PNU", "CLASS", "AREA", "JIGA", "JIGA_YEAR", "ZONE1", "ZONE2", "REGULATION", "COMBINED", "IMAGE")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings")
+        self.tree = ttk.Treeview(table_inner, columns=columns, show="headings")
+        
+        v_scrollbar = ttk.Scrollbar(table_inner, orient=tk.VERTICAL, command=self.tree.yview)
+        v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        
+        h_scrollbar = ttk.Scrollbar(table_inner, orient=tk.HORIZONTAL, command=self.tree.xview)
+        h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        
+        self.tree.configure(yscroll=v_scrollbar.set, xscroll=h_scrollbar.set)
         
         self.tree.heading("ID", text="NO")
         self.tree.heading("ADDRESS", text="주소(입력)")
@@ -404,36 +427,25 @@ class CrawlerGUI:
         self.tree.heading("ZONE1", text="지역지구1")
         self.tree.heading("ZONE2", text="지역지구2")
         self.tree.heading("REGULATION", text="토지이용규제")
-        self.tree.heading("COMBINED", text="통합규제")
+        self.tree.heading("COMBINED", text="통합")
         self.tree.heading("IMAGE", text="이미지여부")
         
         self.tree.column("ID", width=50, anchor="center")
-        self.tree.column("ADDRESS", width=200)
-        self.tree.column("RESULT", width=80, anchor="center")
-        self.tree.column("DETAILS", width=150)
-        self.tree.column("PNU", width=120, anchor="center")
-        self.tree.column("CLASS", width=80, anchor="center")
-        self.tree.column("AREA", width=80, anchor="e")
-        self.tree.column("JIGA", width=80, anchor="e")
+        self.tree.column("ADDRESS", width=220)
+        self.tree.column("RESULT", width=70, anchor="center")
+        self.tree.column("DETAILS", width=70, anchor="center")
+        self.tree.column("PNU", width=150, anchor="center")
+        self.tree.column("CLASS", width=70, anchor="center")
+        self.tree.column("AREA", width=90, anchor="e")
+        self.tree.column("JIGA", width=110, anchor="e")
         self.tree.column("JIGA_YEAR", width=80, anchor="center")
-        self.tree.column("ZONE1", width=100)
-        self.tree.column("ZONE2", width=100)
-        self.tree.column("REGULATION", width=100)
-        self.tree.column("COMBINED", width=150)
+        self.tree.column("ZONE1", width=150)
+        self.tree.column("ZONE2", width=150)
+        self.tree.column("REGULATION", width=150)
+        self.tree.column("COMBINED", width=200)
         self.tree.column("IMAGE", width=80, anchor="center")
         
-        scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscroll=scrollbar.set)
-        
         self.tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        v_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        
-        h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
-        h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
-        
-        self.tree.configure(yscroll=v_scrollbar.set, xscroll=h_scrollbar.set)
         
         # Bind events for copying
         self.tree.bind("<Control-c>", self.copy_selection)
@@ -441,33 +453,36 @@ class CrawlerGUI:
         self.tree.bind("<Button-3>", self.show_context_menu)
         
         # Progress & Statistics (combined in one line)
-        status_frame = ttk.LabelFrame(main_frame, text="진행 상황 및 통계", padding="10")
+        status_frame = ttk.LabelFrame(main_frame, text=" 진행 상황 및 통계 ")
         status_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
-        status_frame.columnconfigure(1, weight=1)
+        
+        status_inner = ttk.Frame(status_frame)
+        status_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        status_inner.columnconfigure(1, weight=1)
         
         # Progress bar (left side, fixed width)
         self.progress_bar = ttk.Progressbar(
-            status_frame,
+            status_inner,
             mode='indeterminate',
             length=150
         )
-        self.progress_bar.grid(row=0, column=0, padx=(0, 10))
+        self.progress_bar.grid(row=0, column=0, padx=(0, 15))
         
         # Progress text (middle, expandable)
         self.progress_var = tk.StringVar(value="대기 중...")
-        ttk.Label(status_frame, textvariable=self.progress_var).grid(row=0, column=1, sticky=tk.W)
+        ttk.Label(status_inner, textvariable=self.progress_var).grid(row=0, column=1, sticky=tk.W)
         
         # Statistics (right side)
         self.stats_label = ttk.Label(
-            status_frame,
+            status_inner,
             text="처리: 0 | 성공: 0 | 실패: 0 | 시간: 0s",
             font=("맑은 고딕", 9)
         )
-        self.stats_label.grid(row=0, column=2, padx=(10, 0))
+        self.stats_label.grid(row=0, column=2, padx=(15, 15))
         
         # Network status indicator (far right) - Canvas dot + label
-        net_frame = ttk.Frame(status_frame)
-        net_frame.grid(row=0, column=3, padx=(15, 5))
+        net_frame = ttk.Frame(status_inner)
+        net_frame.grid(row=0, column=3, sticky=tk.E)
         
         self.net_canvas = tk.Canvas(net_frame, width=14, height=14, 
                                     highlightthickness=0, bd=0)
@@ -493,17 +508,19 @@ class CrawlerGUI:
         self.log_toggle_btn.pack(side=tk.LEFT)
 
         # Log output (Hidden by default)
-        self.log_frame = ttk.LabelFrame(main_frame, text="로그", padding="10")
+        self.log_frame = ttk.LabelFrame(main_frame, text=" 로그 ")
         # Don't grid it initially
-        # self.log_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=5)
-        self.log_frame.columnconfigure(0, weight=1)
-        self.log_frame.rowconfigure(0, weight=1)
+        
+        log_inner = ttk.Frame(self.log_frame)
+        log_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        log_inner.columnconfigure(0, weight=1)
+        log_inner.rowconfigure(0, weight=1)
         
         # Use row 6 for log frame now
         main_frame.rowconfigure(6, weight=0) # Initially 0 weight
         
         self.log_text = scrolledtext.ScrolledText(
-            self.log_frame,
+            log_inner,
             height=10,
             width=100,
             wrap=tk.WORD,
@@ -597,8 +614,8 @@ class CrawlerGUI:
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - 175
         popup.geometry(f"+{x}+{y}")
         
-        frame = ttk.Frame(popup, padding="20")
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame = ttk.Frame(popup)
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
         
         # Start Row
         row_frame = ttk.Frame(frame)
@@ -681,8 +698,6 @@ class CrawlerGUI:
         self.start_btn.config(text="시작", command=self.start_crawler, state=tk.NORMAL, bootstyle="success")
         self.stop_btn.config(state=tk.DISABLED, bootstyle="danger-outline")
         self.save_btn.config(state=tk.DISABLED, bootstyle="info-outline")
-        self.stop_btn.config(state=tk.DISABLED)
-        self.save_btn.config(state=tk.DISABLED)
         
     def browse_file(self):
         """Browse for Excel file."""
@@ -824,6 +839,7 @@ class CrawlerGUI:
                         break
                 
                 handler.close()
+                self.total_count = count
                 self.log(f"총 {count}개의 데이터를 불러왔습니다.")
             else:
                 self.log("Excel 파일을 열 수 없습니다.")
@@ -842,6 +858,7 @@ class CrawlerGUI:
         self.root.after(0, lambda: self._log_impl(message))
     
     def _log_impl(self, message):
+        import time
         self.log_text.insert(tk.END, f"{time.strftime('%H:%M:%S')} - {message}\n")
         self.log_text.see(tk.END)
     
@@ -851,11 +868,11 @@ class CrawlerGUI:
         
     def _update_progress_impl(self, row, address, status, message):
         """Actual progress update implementation."""
-        # Update Treeview
+        # Update Treeview rows if they exist
         try:
-            if self.tree.exists(str(row)):
-                current_values = list(self.tree.item(str(row))['values'])
-                # (ID, ADDRESS, RESULT, DETAILS, PNU, CLASS, AREA, JIGA, ZONE1, ZONE2, REGULATION, IMAGE)
+            iid = str(row)
+            if self.tree.exists(iid):
+                current_values = list(self.tree.item(iid)['values'])
                 
                 if status == "processing":
                     current_values[2] = "처리 중"
@@ -865,58 +882,56 @@ class CrawlerGUI:
                     current_values[2] = "실패"
                 
                 if message:
-                    if "|" in message:
+                    if "|" in message: # Logic used during validation phase
                         parts = message.split("|")
                         current_values[3] = parts[0]
                         if len(parts) > 1:
                             current_values[4] = parts[1] # PNU
                     else:
-                        current_values[3] = message
+                        current_values[3] = message # Sub-task message (e.g. [도면 저장])
                 
                 tags = ()
                 if status == "success": tags = ('success',)
                 elif status == "failed": tags = ('failed',)
                 
-                self.tree.item(str(row), values=current_values, tags=tags)
+                self.tree.item(iid, values=current_values, tags=tags)
                 
                 if status == "processing":
-                    self.tree.see(str(row))
-                    self.tree.selection_set(str(row))
+                    self.tree.see(iid)
+                    self.tree.selection_set(iid)
         except Exception as e:
             print(f"Treeview update error: {e}")
 
+        # Update Progress Variable (the text above progress bar)
         if status == "processing":
-            # Calculate Sequence ID
-            start_row = self.start_row.get()
-            seq_id = row - start_row + 1
+            # Calculate Display ID (NO)
+            start_row_val = self.start_row.get()
+            seq_id = row - start_row_val + 1
             try:
                 if self.tree.exists(str(row)):
-                    seq_id = self.tree.item(str(row))['values'][0]
+                    val = self.tree.item(str(row))['values'][0]
+                    if val:
+                        seq_id = val
             except Exception:
                 pass
-            self.progress_var.set(f"{seq_id}번 처리 중: {address}")
+            
+            # Show "N / Total" if available, and append sub-task message if any
+            total_str = f" / {self.total_count}" if self.total_count > 0 else ""
+            task_msg = f" {message}" if message and "[" in message else ""
+            
+            # Prefix with phase if it looks like validation
+            if message and "검증" in message:
+                self.progress_var.set(f"검증 중 ({seq_id}{total_str}): {address}")
+            else:
+                self.progress_var.set(f"처리 중 ({seq_id}{total_str}): {address}{task_msg}")
+
         elif status == "success":
-            start_row = self.start_row.get()
-            seq_id = row - start_row + 1
-            try:
-                if self.tree.exists(str(row)):
-                    seq_id = self.tree.item(str(row))['values'][0]
-            except Exception:
-                pass
-            self.progress_var.set(f"{seq_id}번 완료: {address}")
             self.total_success += 1
+            self.total_processed += 1
         elif status == "failed":
-            start_row = self.start_row.get()
-            seq_id = row - start_row + 1
-            try:
-                if self.tree.exists(str(row)):
-                    seq_id = self.tree.item(str(row))['values'][0]
-            except Exception:
-                pass
-            self.progress_var.set(f"{seq_id}번 실패: {address}")
             self.total_failed += 1
+            self.total_processed += 1
         
-        self.total_processed += 1
         self.update_stats()
         self.root.update_idletasks()
         
@@ -953,6 +968,7 @@ class CrawlerGUI:
         self.total_processed = 0
         self.total_success = 0
         self.total_failed = 0
+        self.total_count = 0
         self.start_time = None
         self.stats_label.config(text="처리: 0 | 성공: 0 | 실패: 0 | 시간: 0s")
         self.progress_var.set("대기 중...")
@@ -1191,6 +1207,11 @@ def main():
         themename=_bootstrap_theme,
         resizable=(True, True)
     )
+    
+    # Customize Treeview look
+    style = ttk.Style()
+    style.configure("Treeview.Heading", font=("맑은 고딕", 9, "bold"))
+    style.configure("Treeview", rowheight=25)
     
     app = CrawlerGUI(root)
     

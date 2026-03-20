@@ -173,7 +173,7 @@ class ExcelHandler:
 
     def insert_image(self, row: int, image_path: str) -> bool:
         """
-        Insert image into the Excel file.
+        Insert image into the Excel file and adjust cell size to fit.
 
         Args:
             row: Row number (1-indexed)
@@ -187,8 +187,15 @@ class ExcelHandler:
                 console.print(f"[yellow]Warning: Image not found: {image_path}[/yellow]")
                 return False
 
-            # Use original image without resizing
+            # Open image
             img = Image.open(image_path)
+            
+            # Resize image to consistent width (IMAGE_WIDTH from config) while maintaining aspect ratio
+            # This ensures the Excel file is neat and not overly large
+            org_width, org_height = img.size
+            new_width = IMAGE_WIDTH
+            new_height = int((IMAGE_WIDTH / org_width) * org_height)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
             # Convert to RGB if needed (for PNG with transparency)
             if img.mode in ('RGBA', 'LA', 'P'):
@@ -198,23 +205,37 @@ class ExcelHandler:
                 background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
                 img = background
 
-            # Save to temporary file in temp_images directory (as PNG)
+            # Save resized image to temporary file
             from config import TEMP_IMAGE_DIR
-            temp_path = os.path.join(TEMP_IMAGE_DIR, f"excel_original_row{row}.png")
+            temp_path = os.path.join(TEMP_IMAGE_DIR, f"excel_res_row{row}.png")
             
             img.save(temp_path, format='PNG')
             self.temp_image_files.append(temp_path)
 
-            # Insert into Excel from file
+            # Create openpyxl Image object
             xl_img = XLImage(temp_path)
-            cell_ref = f"{EXCEL_COLUMNS['IMAGE']}{row}"
+            
+            # Set explicit dimensions for the drawing object (in pixels)
+            xl_img.width = new_width
+            xl_img.height = new_height
+            
+            # Target column letter and cell reference
+            col_letter = EXCEL_COLUMNS['IMAGE']
+            cell_ref = f"{col_letter}{row}"
+            
+            # Add image to worksheet
             self.worksheet.add_image(xl_img, cell_ref)
             
-            # Adjust row height to match image height
-            # Excel row height is in points. 1 pixel approx 0.75 points
-            # We add a little padding
-            row_height = (img.height * 0.75) + 10
+            # 1. Adjust row height: points (1 pixel ≈ 0.75 points)
+            # Excel has a maximum row height of 409 points.
+            # We add 15 points of vertical padding.
+            row_height = min(409, (new_height * 0.75) + 15)
             self.worksheet.row_dimensions[row].height = row_height
+            
+            # 2. Adjust column width: units (1 unit ≈ 7-8 pixels depending on font)
+            # We add roughly 4 units of horizontal padding (~30 pixels) to be safe
+            col_width = (new_width / 7) + 4
+            self.worksheet.column_dimensions[col_letter].width = col_width
 
             return True
         except Exception as e:

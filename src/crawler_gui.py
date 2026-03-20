@@ -15,6 +15,7 @@ from ttkbootstrap.constants import *
 from tkinter import filedialog, messagebox, scrolledtext
 from pathlib import Path
 from typing import Optional
+from PIL import Image, ImageTk
 
 # Import crawler functions (after setting environment variable)
 from crawler import run_crawler, setup_playwright
@@ -36,7 +37,7 @@ class CrawlerGUI:
         if saved_geometry:
             self.root.geometry(saved_geometry)
         else:
-            self.root.geometry("800x900")
+            self.root.geometry("1100x900")
         
         self.root.resizable(True, True)
         
@@ -66,6 +67,10 @@ class CrawlerGUI:
         self.browser_ready = False
         self.start_crawling_event = threading.Event()
         self.shutdown_event = threading.Event()
+        self.restart_browser_event = threading.Event()
+        
+        # Trace headless mode to restart browser automatically
+        self.headless.trace_add("write", lambda *args: self.restart_browser_event.set())
         
         self.pnu_fetch_queue = queue.Queue()
         self.fetch_pnu_cancel = threading.Event()
@@ -88,6 +93,9 @@ class CrawlerGUI:
         self.start_time = None
         
         # Create UI
+        self.row_image_paths = {} # To store mapping of iid to image path
+        self.preview_image_ref = None # To prevent garbage collection
+        
         self.create_widgets()
         
         # Sync theme button label to match the already-applied saved theme
@@ -126,6 +134,38 @@ class CrawlerGUI:
                 
             # persistent loop to handle scraping requests on the SAME thread
             while not self.shutdown_event.is_set():
+                # Handle browser restart requests (e.g., when headless mode changes)
+                if self.restart_browser_event.is_set():
+                    self.restart_browser_event.clear()
+                    self.log("브라우저 모드 변경을 위해 재시작합니다...")
+                    
+                    # Disable start button temporarily
+                    self.browser_ready = False
+                    self.root.after(0, lambda: self.start_btn.config(state=tk.DISABLED, text="재시작 중..."))
+                    
+                    # Kill current scraper/browser
+                    if self.scraper:
+                        try:
+                            self.scraper.close()
+                        except: pass
+                        self.scraper = None
+                    
+                    # Restart with new settings
+                    from scraper import RealEstateScraper
+                    self.scraper = RealEstateScraper(
+                        headless=self.headless.get(), 
+                        wait_time=self.wait_time.get(), 
+                        log_callback=self.log_callback
+                    )
+                    if self.scraper.start():
+                        self.browser_ready = True
+                        self.log("▶ 브라우저 모드 전환 완료!")
+                        self.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL, text="시작", bootstyle="success"))
+                    else:
+                        self.log("브라우저 재시작 실패")
+                        self.root.after(0, lambda: self.start_btn.config(state=tk.DISABLED, text="초기화 실패"))
+                    continue
+
                 if self.start_crawling_event.is_set():
                     self.start_crawling_event.clear()
                     self._execute_crawler_job()
@@ -400,7 +440,7 @@ class CrawlerGUI:
         
         table_inner = ttk.Frame(table_frame)
         table_inner.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        table_inner.columnconfigure(0, weight=1)
+        table_inner.columnconfigure(0, weight=1) # The Treeview
         table_inner.rowconfigure(0, weight=1)
         main_frame.rowconfigure(3, weight=2)  # Give more weight to table
         
@@ -414,6 +454,30 @@ class CrawlerGUI:
         h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
         
         self.tree.configure(yscroll=v_scrollbar.set, xscroll=h_scrollbar.set)
+        
+        # Right Side: Image Preview
+        self.preview_frame = ttk.LabelFrame(table_inner, text=" 이미지 미리보기 ", width=300)
+        self.preview_frame.grid(row=0, column=2, rowspan=2, sticky=(tk.N, tk.E, tk.S), padx=(10, 0))
+        # IMPORTANT: Use pack_propagate(False) because we use pack() for the label inside.
+        # This keeps the frame size fixed regardless of the image size.
+        self.preview_frame.pack_propagate(False)
+        
+        self.preview_label = ttk.Label(self.preview_frame, text="행을 선택하면\n이미지가 표시됩니다", justify=tk.CENTER)
+        self.preview_label.pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
+        # Add click event to open original size popup
+        # self.preview_label.bind("<Button-1>", self.open_image_popup)
+        # self.preview_label.config(cursor="hand2") # Show hand cursor on hover
+        
+        # Add copy button below the image label
+        self.copy_img_btn = ttk.Button(
+            self.preview_frame, 
+            text="이미지 복사", 
+            command=self.copy_image_to_clipboard,
+            bootstyle="outline-info",
+            width=12
+        )
+        self.copy_img_btn.pack(side=tk.BOTTOM, pady=10)
+        self.copy_img_btn.config(state=tk.DISABLED)
         
         self.tree.heading("ID", text="NO")
         self.tree.heading("ADDRESS", text="주소(입력)")
@@ -451,6 +515,8 @@ class CrawlerGUI:
         self.tree.bind("<Control-c>", self.copy_selection)
         # Windows/Linux right-click is <Button-3>, macOS is <Button-2> or <Button-3>
         self.tree.bind("<Button-3>", self.show_context_menu)
+        # Handle selection to update image preview
+        self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         
         # Progress & Statistics (combined in one line)
         status_frame = ttk.LabelFrame(main_frame, text=" 진행 상황 및 통계 ")
@@ -699,6 +765,13 @@ class CrawlerGUI:
         self.stop_btn.config(state=tk.DISABLED, bootstyle="danger-outline")
         self.save_btn.config(state=tk.DISABLED, bootstyle="info-outline")
         
+        # Clear image preview state
+        self.row_image_paths.clear()
+        self.preview_frame.config(text=" 이미지 미리보기 ")
+        self.preview_label.config(image='', text="행을 선택하면\n이미지가 표시됩니다")
+        self.preview_image_ref = None
+        self.copy_img_btn.config(state=tk.DISABLED)
+        
     def browse_file(self):
         """Browse for Excel file."""
         filename = filedialog.askopenfilename(
@@ -771,10 +844,11 @@ class CrawlerGUI:
                 if "present_mark3" in data: current_values[11] = data["present_mark3"]
                 if "present_mark_combined" in data: current_values[12] = data["present_mark_combined"]
                 
-                if "image_status" in data: 
+                if "image_path" in data and data["image_path"]: 
+                    current_values[13] = "Y"
+                    self.row_image_paths[iid] = data["image_path"]
+                elif "image_status" in data: 
                     current_values[13] = data["image_status"]
-                elif "image_path" in data: 
-                    current_values[13] = "Y" if data["image_path"] else "N"
                 
                 self.tree.item(iid, values=current_values)
                 self.log(f"[green][DEBUG] Successfully updated tree item {iid}[/green]")
@@ -784,6 +858,184 @@ class CrawlerGUI:
             self.log(f"[red][ERROR] Error updating row {row}: {e}[/red]")
             import traceback
             self.log(f"[red]{traceback.format_exc()}[/red]")
+
+    def on_tree_select(self, event):
+        """Handle treeview row selection to show image preview."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            return
+            
+        # selected_items contains the iid of the row
+        iid = selected_items[0]
+        image_path = self.row_image_paths.get(iid)
+        
+        if image_path and os.path.exists(image_path):
+            self.log(f"[dim][DEBUG] Previewing image: {image_path}[/dim]")
+            self.show_image_preview(image_path)
+            self.copy_img_btn.config(state=tk.NORMAL)
+            # Add tooltip-like hint
+            # self.status_var.set("마우스 클릭 시 원본 이미지를 볼 수 있습니다.")
+        else:
+            self.log(f"[dim][DEBUG] No image path for IID {iid}[/dim]")
+            self.preview_frame.config(text=" 이미지 미리보기 ")
+            self.preview_label.config(image='', text="이미지가 없거나\n찾을 수 없습니다")
+            self.preview_image_ref = None
+            self.copy_img_btn.config(state=tk.DISABLED)
+            self.status_var.set("이미지가 없습니다.")
+
+    def show_image_preview(self, image_path):
+        """Display image in the preview pane."""
+        try:
+            # Open image
+            img = Image.open(image_path)
+            
+            # Width is fixed to 300 in UI, so 280 is safe after padding
+            max_width = 280
+            max_height = 500 # Adjust to reasonable height for 300 width
+            
+            # Maintain aspect ratio
+            img_width, img_height = img.size
+            ratio = min(max_width/img_width, max_height/img_height)
+            
+            if ratio < 1.0:
+                new_size = (int(img_width * ratio), int(img_height * ratio))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+                
+            photo = ImageTk.PhotoImage(img)
+            
+            # Update label and frame title with image info
+            orig_w, orig_h = Image.open(image_path).size # Reuse original size for title
+            file_size_kb = os.path.getsize(image_path) / 1024
+            self.preview_frame.config(text=f" 이미지 미리보기 ({orig_w}x{orig_h}, {file_size_kb:.1f}KB) ")
+            self.preview_label.config(image=photo, text="")
+            self.preview_image_ref = photo # CRITICAL: Keep reference to prevent garbage collection
+            
+        except Exception as e:
+            self.log(f"[red]미리보기 오류: {e}[/red]")
+            self.preview_label.config(image='', text="이미지를 불러올 수 없습니다")
+            self.preview_image_ref = None
+
+    # def open_image_popup(self, event=None):
+    #     """Opens a popup window to show the original size image."""
+    #     selected_items = self.tree.selection()
+    #     if not selected_items:
+    #         return
+    #         
+    #     iid = str(selected_items[0])
+    #     image_path = self.row_image_paths.get(iid)
+    #     
+    #     if not image_path or not os.path.exists(image_path):
+    #         return
+    #         
+    #     try:
+    #         # Create popup
+    #         popup = tk.Toplevel(self.root)
+    #         popup.title(f"이미지 원본 보기 - {os.path.basename(image_path)}")
+    #         
+    #         # Load original image
+    #         img = Image.open(image_path)
+    #         w, h = img.size
+    #         
+    #         # Limit window size based on screen
+    #         screen_w = self.root.winfo_screenwidth() - 100
+    #         screen_h = self.root.winfo_screenheight() - 200
+    #         
+    #         # Add some buffer for title and scrollbars
+    #         win_w = min(w + 25, screen_w)
+    #         win_h = min(h + 100, screen_h)
+    #         
+    #         popup.geometry(f"{win_w}x{win_h}")
+    #         
+    #         # Add informative label at the top
+    #         ttk.Label(popup, text=f"원본 크기: {w} x {h} | 마우스 휠로 스크롤 가능", 
+    #                   font=("맑은 고딕", 9), bootstyle="secondary").pack(pady=5)
+    #         
+    #         # Container for canvas and scrollbars
+    #         container = ttk.Frame(popup)
+    #         container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    #         
+    #         # Scrollbars
+    #         v_scroll = ttk.Scrollbar(container, orient=tk.VERTICAL)
+    #         h_scroll = ttk.Scrollbar(container, orient=tk.HORIZONTAL)
+    #         
+    #         # Canvas
+    #         canvas = tk.Canvas(container, bg="gray20",
+    #                            yscrollcommand=v_scroll.set, 
+    #                            xscrollcommand=h_scroll.set)
+    #         
+    #         v_scroll.config(command=canvas.yview)
+    #         h_scroll.config(command=canvas.xview)
+    #         
+    #         # Layout
+    #         v_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    #         h_scroll.pack(side=tk.BOTTOM, fill=tk.X)
+    #         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    #         
+    #         # Display image
+    #         photo = ImageTk.PhotoImage(img)
+    #         canvas.create_image(0, 0, image=photo, anchor=tk.NW)
+    #         canvas.config(scrollregion=(0, 0, w, h))
+    #         
+    #         # Keep object reference
+    #         popup.image_ref = photo
+    #         
+    #         # Add copy button at the bottom
+    #         btn_frame = ttk.Frame(popup)
+    #         btn_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+    #         
+    #         ttk.Button(
+    #             btn_frame, 
+    #             text=f"현재 주소 원본 이미지 복사 ({w}x{h})", 
+    #             command=lambda p=image_path: self.copy_image_to_clipboard(p),
+    #             bootstyle="success",
+    #             width=35
+    #         ).pack()
+    #         
+    #         # Mouse wheel scrolling support
+    #         def _on_mousewheel(event):
+    #             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    #         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+    #         
+    #         # Clean up binding when popup closes
+    #         def _on_close():
+    #             canvas.unbind_all("<MouseWheel>")
+    #             popup.destroy()
+    #         popup.protocol("WM_DELETE_WINDOW", _on_close)
+    #         
+    #     except Exception as e:
+    #         self.log(f"[red]팝업 열기 공유: {e}[/red]")
+
+    def copy_image_to_clipboard(self, image_path=None):
+        """Copies the image to the clipboard using PowerShell on Windows."""
+        if image_path is None:
+            selected_items = self.tree.selection()
+            if not selected_items:
+                return
+            iid = str(selected_items[0])
+            image_path = self.row_image_paths.get(iid)
+        
+        if not image_path or not os.path.exists(image_path):
+            self.log("[yellow]복사 실패: 이미지가 존재하지 않습니다.[/yellow]")
+            return
+            
+        try:
+            # Check original size for logging
+            img = Image.open(image_path)
+            w, h = img.size
+            
+            import subprocess
+            # Construct powershell command to copy image to clipboard
+            ps_command = f"""
+            Add-Type -AssemblyName System.Windows.Forms;
+            [System.Windows.Forms.Clipboard]::SetImage([System.Drawing.Image]::FromFile('{os.path.abspath(image_path)}'));
+            """
+            
+            # Execute command
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_command], check=True, creationflags=0x08000000)
+            self.status_var.set("원본 이미지 복사 완료")
+            self.log(f"[green]성공: 원본 이미지({w}x{h})를 클립보드에 복사했습니다.[/green]")
+        except Exception as e:
+            self.log(f"[red]복사 오류: {e}[/red]")
 
     def load_excel_data(self):
         file_path = self.excel_file.get()

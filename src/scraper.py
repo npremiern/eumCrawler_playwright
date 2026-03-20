@@ -457,9 +457,12 @@ class RealEstateScraper:
 
                         # Save copy to permanent location
                         img.save(permanent_path, 'PNG')
-                        self.log(f"[green]OK[/green] Saved popup image to: {permanent_path}")
+                        w, h = img.size
+                        size_kb = os.path.getsize(permanent_path) / 1024
+                        self.log(f"[green]OK[/green] Saved popup image: {w}x{h} ({size_kb:.1f}KB)")
+                        self.log(f"[dim]Saved to: {permanent_path}[/dim]")
                         
-                    return filepath
+                    return permanent_path
                 except Exception as e:
                     self.log(f"[red]Error verifying/processing image: {e}[/red]")
                     return None
@@ -625,9 +628,12 @@ class RealEstateScraper:
                 with open(permanent_path, "wb") as f:
                     f.write(img_bytes)
 
-                console.print(f"[green]OK[/green] Image downloaded: {image_path}")
-                console.print(f"[green]OK[/green] Saved to: {permanent_path}")
-                return image_path
+                # Get image info
+                w, h = img.size
+                size_kb = len(img_bytes) / 1024
+                console.print(f"[green]OK[/green] Image downloaded: {w}x{h} ({size_kb:.1f}KB)")
+                console.print(f"[dim]Saved to: {permanent_path}[/dim]")
+                return permanent_path
             except Exception as verify_error:
                 console.print(f"[yellow]Warning: Downloaded data is not a valid image: {verify_error}[/yellow]")
                 return None
